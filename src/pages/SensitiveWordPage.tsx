@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, useDeferredValue } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { message, Statistic, Row, Col, Card as AntCard, Tag, Button } from 'antd'
 import {
   ClockCircleOutlined,
@@ -30,15 +30,53 @@ function SensitiveWordPage() {
   const imagesRef = useRef<MatchedImage[]>([])
 
   // 选中状态独立管理（Set 查找 O(1)，不污染 images 数组）
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [targetSelectedIds, setTargetSelectedIds] = useState<Set<string>>(new Set())
+  const [displayedSelectedIds, setDisplayedSelectedIds] = useState<Set<string>>(new Set())
   const selectedIdsRef = useRef<Set<string>>(new Set())
+  const batchRafRef = useRef<number | null>(null)
 
-  // 同步 ref
   useEffect(() => {
-    selectedIdsRef.current = selectedIds
-  }, [selectedIds])
+    selectedIdsRef.current = targetSelectedIds
+  }, [targetSelectedIds])
 
-  const deferredSelectedIds = useDeferredValue(selectedIds)
+  const syncBatchRef = useRef<string[]>([])
+  const SYNC_BATCH_SIZE = 50
+
+  const startProgressiveSync = useCallback((target: Set<string>) => {
+    if (batchRafRef.current) cancelAnimationFrame(batchRafRef.current)
+
+    const current = displayedSelectedIds
+    const toAdd: string[] = []
+    const toRemove: string[] = []
+
+    target.forEach(id => { if (!current.has(id)) toAdd.push(id) })
+    current.forEach(id => { if (!target.has(id)) toRemove.push(id) })
+
+    if (toAdd.length === 0 && toRemove.length === 0) return
+
+    syncBatchRef.current = [...toAdd, ...toRemove]
+
+    const runBatch = () => {
+      const batch = syncBatchRef.current.splice(0, SYNC_BATCH_SIZE)
+      if (batch.length === 0) {
+        batchRafRef.current = null
+        return
+      }
+
+      setDisplayedSelectedIds(prev => {
+        const next = new Set(prev)
+        batch.forEach(id => {
+          if (target.has(id)) next.add(id)
+          else next.delete(id)
+        })
+        return next
+      })
+
+      batchRafRef.current = requestAnimationFrame(runBatch)
+    }
+
+    batchRafRef.current = requestAnimationFrame(runBatch)
+  }, [displayedSelectedIds])
 
   const [loading, setLoading] = useState(false)
   const [currentFolder, setCurrentFolder] = useState<string | null>(null)
@@ -155,7 +193,8 @@ function SensitiveWordPage() {
     console.log('🎯 [页面] 开始扫描文件夹:', folderPath)
     imagesRef.current = []
     setVisibleCount(50)
-    setSelectedIds(new Set())
+    setTargetSelectedIds(new Set())
+    setDisplayedSelectedIds(new Set())
     setLoading(true)
     setImages([])
     setStats(undefined)
@@ -181,7 +220,9 @@ function SensitiveWordPage() {
           if (imagesRef.current.length <= 100 || imagesRef.current.length % 100 === 0) {
             const renderStart = performance.now()
             setImages(imagesRef.current)
-            setSelectedIds(new Set(imagesRef.current.map(img => img.id)))
+            const newIds = new Set(imagesRef.current.map(img => img.id))
+            setTargetSelectedIds(newIds)
+            setDisplayedSelectedIds(newIds)
             setLoading(false)
             // 使用 requestAnimationFrame 测量实际渲染时间
             requestAnimationFrame(() => {
@@ -194,7 +235,9 @@ function SensitiveWordPage() {
           console.log('🏁 [页面] 扫描完成，统计:', event.stats)
           const finalRenderStart = performance.now()
           setImages(imagesRef.current)
-          setSelectedIds(new Set(imagesRef.current.map(img => img.id)))
+          const newIds = new Set(imagesRef.current.map(img => img.id))
+          setTargetSelectedIds(newIds)
+          setDisplayedSelectedIds(newIds)
           setLoading(false)
           setCurrentFolder(folderPath)
           setStats(event.stats)
@@ -212,7 +255,9 @@ function SensitiveWordPage() {
         console.log('📊 [页面] 使用最终结果:', result.data.length, '张')
         imagesRef.current = result.data
         setImages(result.data)
-        setSelectedIds(new Set(result.data.map(img => img.id)))
+        const rescanIds = new Set(result.data.map(img => img.id))
+        setTargetSelectedIds(rescanIds)
+        setDisplayedSelectedIds(rescanIds)
         setLoading(false)
         setCurrentFolder(folderPath)
         setStats(result.stats)
@@ -241,30 +286,33 @@ function SensitiveWordPage() {
   }
 
   const handleToggleSelect = useCallback((imageId: string) => {
-    setSelectedIds(prev => {
+    setTargetSelectedIds(prev => {
       const next = new Set(prev)
       if (next.has(imageId)) {
         next.delete(imageId)
       } else {
         next.add(imageId)
       }
+      startProgressiveSync(next)
       return next
     })
-  }, [])
+  }, [startProgressiveSync])
 
   // 全选/取消全选：选中所有图片（包括未显示的）
   const handleSelectAll = (selected: boolean) => {
     if (selected) {
-      setSelectedIds(new Set(images.map(img => img.id)))
-      message.success(`已选中全部 ${images.length} 张图片`)
+      const allIds = new Set(images.map(img => img.id))
+      setTargetSelectedIds(allIds)
+      startProgressiveSync(allIds)
     } else {
-      setSelectedIds(new Set())
+      setTargetSelectedIds(new Set())
+      startProgressiveSync(new Set())
     }
   }
 
   // 删除所有选中的图片（全量删除）
   const handleDeleteSelected = async () => {
-    const allSelectedImages = images.filter(img => selectedIds.has(img.id))
+    const allSelectedImages = images.filter(img => targetSelectedIds.has(img.id))
 
     if (allSelectedImages.length === 0) {
       message.warning('请先选择要删除的图片')
@@ -272,7 +320,7 @@ function SensitiveWordPage() {
     }
 
     const totalCount = allSelectedImages.length
-    const visibleSelectedImages = images.slice(0, visibleCount).filter(img => selectedIds.has(img.id))
+    const visibleSelectedImages = images.slice(0, visibleCount).filter(img => targetSelectedIds.has(img.id))
     const visibleSelectedCount = visibleSelectedImages.length
 
     if (visibleCount < images.length && visibleSelectedCount > 0 && visibleSelectedCount < totalCount) {
@@ -290,8 +338,7 @@ function SensitiveWordPage() {
               📊 操作详情：<br />
               &nbsp;&nbsp;• 总共选中：<strong style={{ color: '#cf1322' }}>{totalCount}</strong> 张<br />
               &nbsp;&nbsp;• 当前显示区域：<strong>{visibleSelectedCount}</strong> 张<br />
-              &nbsp;&nbsp;• 未显示区域：<strong>{totalCount - visibleSelectedCount}</strong> 张<br />
-              <span style={{ color: '#faad14' }}>⚠️ 将删除所有匹配的图片（包括未在当前视图中显示的）</span>
+              &nbsp;&nbsp;• 未显示区域：<strong>{totalCount - visibleSelectedCount}</strong> 张
             </div>
           </div>
         ),
@@ -306,7 +353,12 @@ function SensitiveWordPage() {
                     const deletedIds = new Set(visibleSelectedImages.map(img => img.id))
                     imagesRef.current = imagesRef.current.filter(img => !deletedIds.has(img.id))
                     setImages(prev => prev.filter(img => !deletedIds.has(img.id)))
-                    setSelectedIds(prev => {
+                    setTargetSelectedIds(prev => {
+                      const next = new Set(prev)
+                      deletedIds.forEach(id => next.delete(id))
+                      return next
+                    })
+                    setDisplayedSelectedIds(prev => {
                       const next = new Set(prev)
                       deletedIds.forEach(id => next.delete(id))
                       return next
@@ -326,7 +378,12 @@ function SensitiveWordPage() {
                   const deletedIds = new Set(allSelectedImages.map(img => img.id))
                   imagesRef.current = imagesRef.current.filter(img => !deletedIds.has(img.id))
                   setImages(prev => prev.filter(img => !deletedIds.has(img.id)))
-                  setSelectedIds(prev => {
+                  setTargetSelectedIds(prev => {
+                    const next = new Set(prev)
+                    deletedIds.forEach(id => next.delete(id))
+                    return next
+                  })
+                  setDisplayedSelectedIds(prev => {
                     const next = new Set(prev)
                     deletedIds.forEach(id => next.delete(id))
                     return next
@@ -372,7 +429,12 @@ function SensitiveWordPage() {
             const deletedIds = new Set(allSelectedImages.map(img => img.id))
             imagesRef.current = imagesRef.current.filter(img => !deletedIds.has(img.id))
             setImages(prev => prev.filter(img => !deletedIds.has(img.id)))
-            setSelectedIds(prev => {
+            setTargetSelectedIds(prev => {
+              const next = new Set(prev)
+              deletedIds.forEach(id => next.delete(id))
+              return next
+            })
+            setDisplayedSelectedIds(prev => {
               const next = new Set(prev)
               deletedIds.forEach(id => next.delete(id))
               return next
@@ -385,8 +447,8 @@ function SensitiveWordPage() {
     })
   }
 
-  const selectedCount = selectedIds.size
-  const allSelected = images.length > 0 && selectedIds.size === images.length
+  const selectedCount = targetSelectedIds.size
+  const allSelected = images.length > 0 && targetSelectedIds.size === images.length
 
   const formatTime = (ms: number) => {
     if (ms < 1000) return `${ms}ms`
@@ -486,7 +548,7 @@ function SensitiveWordPage() {
             images={visibleImages}
             totalImages={images.length}
             loading={loading}
-            selectedIds={deferredSelectedIds}
+            selectedIds={displayedSelectedIds}
             onToggleSelect={handleToggleSelect}
             onDeleteSelected={handleDeleteSelected}
           />
