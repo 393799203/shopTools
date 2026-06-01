@@ -40,7 +40,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
       <Space>
         <Text type="secondary">
           共 {totalImages} 张图片，
-          已选择 <Text strong>{selectedCount}</Text> 张
+          已选择 <Text strong style={{ display: 'inline-block', minWidth: 36, textAlign: 'center' }}>{selectedCount}</Text> 张
           {hasMore && (
             <Tooltip title={`当前显示前 ${visibleCount} 张，滚动查看更多\n全选和删除操作将作用于全部 ${totalImages} 张图片`}>
               <InfoCircleOutlined style={{ marginLeft: 4, color: '#faad14' }} />
@@ -55,11 +55,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
             onChange={(e) => onSelectAll(e.target.checked)}
           >
             全选
-            {hasMore && (
-              <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>
-                (全部{totalImages}张)
-              </Text>
-            )}
           </Checkbox>
         )}
       </Space>

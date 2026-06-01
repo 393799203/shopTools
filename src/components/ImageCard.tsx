@@ -169,7 +169,7 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggl
       onClick={() => onToggleSelect(image.id)}
     >
       <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 10 }}>
-        <Checkbox checked={selected} />
+        <Checkbox checked={selected} style={{ transition: 'none' }} />
       </div>
 
       <div
@@ -250,6 +250,9 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggl
       <style>{`
         .ant-card:hover .zoom-hint {
           opacity: 1;
+        }
+        .ant-checkbox-inner {
+          transition: none !important;
         }
       `}</style>
     </Card>

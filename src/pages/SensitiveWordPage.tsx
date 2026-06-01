@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, useDeferredValue } from 'react'
 import { message, Statistic, Row, Col, Card as AntCard, Tag, Button } from 'antd'
 import {
   ClockCircleOutlined,
@@ -37,6 +37,8 @@ function SensitiveWordPage() {
   useEffect(() => {
     selectedIdsRef.current = selectedIds
   }, [selectedIds])
+
+  const deferredSelectedIds = useDeferredValue(selectedIds)
 
   const [loading, setLoading] = useState(false)
   const [currentFolder, setCurrentFolder] = useState<string | null>(null)
@@ -270,20 +272,89 @@ function SensitiveWordPage() {
     }
 
     const totalCount = allSelectedImages.length
-    const visibleSelectedCount = images.slice(0, visibleCount).filter(img => selectedIds.has(img.id)).length
+    const visibleSelectedImages = images.slice(0, visibleCount).filter(img => selectedIds.has(img.id))
+    const visibleSelectedCount = visibleSelectedImages.length
 
-    // 构建明确的提示信息
+    if (visibleCount < images.length && visibleSelectedCount > 0 && visibleSelectedCount < totalCount) {
+      const { Modal, Button: MButton } = await import('antd')
+      Modal.confirm({
+        title: '⚠️ 批量删除确认',
+        width: 480,
+        icon: null,
+        content: (
+          <div style={{ padding: '8px 0' }}>
+            <div style={{ marginBottom: 12, color: '#333', fontSize: '14px', lineHeight: '1.6' }}>
+              确定要删除 {totalCount} 张图片吗？
+            </div>
+            <div style={{ color: '#666', fontSize: '13px', lineHeight: '1.8' }}>
+              📊 操作详情：<br />
+              &nbsp;&nbsp;• 总共选中：<strong style={{ color: '#cf1322' }}>{totalCount}</strong> 张<br />
+              &nbsp;&nbsp;• 当前显示区域：<strong>{visibleSelectedCount}</strong> 张<br />
+              &nbsp;&nbsp;• 未显示区域：<strong>{totalCount - visibleSelectedCount}</strong> 张<br />
+              <span style={{ color: '#faad14' }}>⚠️ 将删除所有匹配的图片（包括未在当前视图中显示的）</span>
+            </div>
+          </div>
+        ),
+        footer: (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            {visibleSelectedCount > 0 && (
+              <MButton danger onClick={async () => {
+                try {
+                  const result = await api.deleteImages(visibleSelectedImages.map(img => img.path))
+                  if (result.success) {
+                    message.success(`成功删除 ${result.data.deletedCount} 张图片`)
+                    const deletedIds = new Set(visibleSelectedImages.map(img => img.id))
+                    imagesRef.current = imagesRef.current.filter(img => !deletedIds.has(img.id))
+                    setImages(prev => prev.filter(img => !deletedIds.has(img.id)))
+                    setSelectedIds(prev => {
+                      const next = new Set(prev)
+                      deletedIds.forEach(id => next.delete(id))
+                      return next
+                    })
+                  }
+                } catch { message.error('删除失败') }
+                Modal.destroyAll()
+              }}>
+                仅删除显示区域 ({visibleSelectedCount}张)
+              </MButton>
+            )}
+            <MButton type="primary" danger onClick={async () => {
+              try {
+                const result = await api.deleteImages(allSelectedImages.map(img => img.path))
+                if (result.success) {
+                  message.success(`成功删除 ${result.data.deletedCount} 张图片，失败 ${result.data.failedCount} 张`)
+                  const deletedIds = new Set(allSelectedImages.map(img => img.id))
+                  imagesRef.current = imagesRef.current.filter(img => !deletedIds.has(img.id))
+                  setImages(prev => prev.filter(img => !deletedIds.has(img.id)))
+                  setSelectedIds(prev => {
+                    const next = new Set(prev)
+                    deletedIds.forEach(id => next.delete(id))
+                    return next
+                  })
+                }
+              } catch { message.error('删除失败') }
+              Modal.destroyAll()
+            }}>
+              删除全部 ({totalCount}张)
+            </MButton>
+          </div>
+        ),
+        closable: true,
+        maskClosable: true,
+      })
+      return
+    }
+
     let confirmMessage = `确定要删除 ${totalCount} 张图片吗？\n\n`
     confirmMessage += `📊 操作详情：\n`
     confirmMessage += `• 总共选中：${totalCount} 张\n`
-    
+
     if (visibleCount < images.length) {
       confirmMessage += `• 当前显示区域：${visibleSelectedCount} 张\n`
       confirmMessage += `• 未显示区域：${totalCount - visibleSelectedCount} 张\n`
       confirmMessage += `\n⚠️ 将删除所有匹配的图片（包括未在当前视图中显示的）`
     }
 
-    // 使用 Modal.confirm 让用户确认
     const { Modal } = await import('antd')
     Modal.confirm({
       title: '⚠️ 批量删除确认',
@@ -298,7 +369,6 @@ function SensitiveWordPage() {
           if (result.success) {
             message.success(`成功删除 ${result.data.deletedCount} 张图片，失败 ${result.data.failedCount} 张`)
 
-            // 从 imagesRef 和 state 中移除已删除的图片
             const deletedIds = new Set(allSelectedImages.map(img => img.id))
             imagesRef.current = imagesRef.current.filter(img => !deletedIds.has(img.id))
             setImages(prev => prev.filter(img => !deletedIds.has(img.id)))
@@ -416,7 +486,7 @@ function SensitiveWordPage() {
             images={visibleImages}
             totalImages={images.length}
             loading={loading}
-            selectedIds={selectedIds}
+            selectedIds={deferredSelectedIds}
             onToggleSelect={handleToggleSelect}
             onDeleteSelected={handleDeleteSelected}
           />
