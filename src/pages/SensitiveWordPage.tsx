@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { message, Statistic, Row, Col, Card as AntCard, Tag, Button } from 'antd'
 import {
   ClockCircleOutlined,
@@ -37,45 +37,31 @@ function SensitiveWordPage() {
     currentFolder: null
   })
 
-  // 使用 ref 追踪最新的 images，避免闭包陷阱
-  const imagesRef = useRef<MatchedImage[]>([])
-
-  // 分批渲染控制：初始只显示前 50 个，避免一次性渲染 990 个组件
-  const [visibleCount, setVisibleCount] = useState(50)
-  const BATCH_SIZE = 50 // 每批增加的数量
-  const gridRef = useRef<HTMLDivElement>(null)
-
   // 返回顶部按钮控制
   const [showBackToTop, setShowBackToTop] = useState(false)
-  const SCROLL_THRESHOLD = 300 // 滚动超过这个距离显示按钮
+  const SCROLL_THRESHOLD = 300
+  const gridRef = useRef<HTMLDivElement>(null)
 
-  // 监听滚动，动态加载更多 + 控制返回顶部按钮
+  // 监听滚动，控制返回顶部按钮
   useEffect(() => {
     const gridElement = gridRef.current
     if (!gridElement) return
 
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = gridElement
-
-      // 当滚动到底部附近时（距离底部 200px），加载更多
-      if (scrollHeight - scrollTop - clientHeight < 200 && visibleCount < imagesRef.current.length) {
-        setVisibleCount(prev => Math.min(prev + BATCH_SIZE, imagesRef.current.length))
-      }
-
-      // 控制返回顶部按钮显示/隐藏
+      const { scrollTop } = gridElement
       setShowBackToTop(scrollTop > SCROLL_THRESHOLD)
     }
 
     gridElement.addEventListener('scroll', handleScroll)
     return () => gridElement.removeEventListener('scroll', handleScroll)
-  }, [visibleCount])
+  }, [])
 
   // 返回顶部函数
   const scrollToTop = () => {
     if (gridRef.current) {
       gridRef.current.scrollTo({
         top: 0,
-        behavior: 'smooth' // 平滑滚动
+        behavior: 'smooth'
       })
     }
   }
@@ -146,79 +132,29 @@ function SensitiveWordPage() {
   }, [])
 
   const handleScanFolder = async (folderPath: string) => {
-    const scanStartTime = performance.now()
     console.log('🎯 [页面] 开始扫描文件夹:', folderPath)
-    // 重置 ref 和可见数量
-    imagesRef.current = []
-    setVisibleCount(50) // 重置为初始值
     setImageState(prev => ({ ...prev, loading: true, images: [], stats: undefined }))
 
     try {
-      const apiCallStart = performance.now()
-      console.log('📡 [页面] 调用流式 API...')
-      const result = await api.scanFolder(folderPath, (event) => {
-        const eventTime = performance.now()
-        console.log(`📥 [页面] 收到事件: ${event.type} (耗时: ${(eventTime - scanStartTime).toFixed(0)}ms)`)
+      console.log('📡 [页面] 调用同步 API...')
+      const result = await api.scanFolder(folderPath)
 
-        if (event.type === 'start') {
-          console.log('✅ [页面] 扫描已开始')
-        } else if (event.type === 'data' && Array.isArray(event.data)) {
-          // 实时添加新数据 - 使用 ref 追踪最新状态
-          const newImages = event.data
-          const beforeUpdate = performance.now()
-          imagesRef.current = [...imagesRef.current, ...newImages]
-
-          console.log(`🖼️ [页面] 新增 ${newImages.length} 张图片，总计: ${imagesRef.current.length} 张`)
-
-          // 只在必要时更新 state（减少渲染次数）
-          if (imagesRef.current.length <= 100 || imagesRef.current.length % 100 === 0) {
-            const renderStart = performance.now()
-            setImageState(prev => ({
-              ...prev,
-              images: imagesRef.current,
-              loading: false
-            }))
-            // 使用 requestAnimationFrame 测量实际渲染时间
-            requestAnimationFrame(() => {
-              const renderEnd = performance.now()
-              console.log(`⚡ [渲染] 更新 ${imagesRef.current.length} 个组件耗时: ${(renderEnd - renderStart).toFixed(0)}ms`)
-            })
-          }
-        } else if (event.type === 'end') {
-          // 扫描完成 - 强制更新最终状态
-          console.log('🏁 [页面] 扫描完成，统计:', event.stats)
-          const finalRenderStart = performance.now()
-          setImageState({
-            images: imagesRef.current,
-            loading: false,
-            currentFolder: folderPath,
-            stats: event.stats
-          })
-          requestAnimationFrame(() => {
-            const finalRenderEnd = performance.now()
-            const totalTime = (finalRenderEnd - scanStartTime).toFixed(0)
-            console.log(`🎉 [总耗时] 完整流程耗时: ${totalTime}ms`)
-            console.log(`⚡ [最终渲染] 渲染 ${imagesRef.current.length} 个组件耗时: ${(finalRenderEnd - finalRenderStart).toFixed(0)}ms`)
-          })
-        }
-      })
-
-      // 最终结果（兼容非流式情况）
-      if (result.success && Array.isArray(result.data) && result.data.length > 0 && imagesRef.current.length === 0) {
-        console.log('📊 [页面] 使用最终结果:', result.data.length, '张')
-        imagesRef.current = result.data
+      if (result.success) {
+        console.log(`📊 [页面] 扫描完成，找到 ${result.data.length} 张匹配图片`)
         setImageState({
           images: result.data,
           loading: false,
           currentFolder: folderPath,
           stats: result.stats
         })
-        message.success(`找到 ${result.data.length} 张匹配的图片`)
-      }
 
-      const totalImages = imagesRef.current.length
-      if (totalImages === 0 && !imageState.loading) {
-        message.info('未找到匹配的图片')
+        if (result.data.length > 0) {
+          message.success(`找到 ${result.data.length} 张匹配的图片`)
+        } else {
+          message.info('未找到匹配的图片')
+        }
+      } else {
+        throw new Error('扫描失败')
       }
 
     } catch (error) {
@@ -268,20 +204,11 @@ function SensitiveWordPage() {
     }
 
     const totalCount = allSelectedImages.length
-    const visibleSelectedCount = imageState.images.slice(0, visibleCount).filter(img => img.selected).length
 
-    // 构建明确的提示信息
     let confirmMessage = `确定要删除 ${totalCount} 张图片吗？\n\n`
     confirmMessage += `📊 操作详情：\n`
     confirmMessage += `• 总共选中：${totalCount} 张\n`
-    
-    if (visibleCount < imageState.images.length) {
-      confirmMessage += `• 当前显示区域：${visibleSelectedCount} 张\n`
-      confirmMessage += `• 未显示区域：${totalCount - visibleSelectedCount} 张\n`
-      confirmMessage += `\n⚠️ 将删除所有匹配的图片（包括未在当前视图中显示的）`
-    }
 
-    // 使用 Modal.confirm 让用户确认
     const { Modal } = await import('antd')
     Modal.confirm({
       title: '⚠️ 批量删除确认',
@@ -296,10 +223,7 @@ function SensitiveWordPage() {
           if (result.success) {
             message.success(`成功删除 ${result.data.deletedCount} 张图片，失败 ${result.data.failedCount} 张`)
 
-            // 从 imagesRef 和 state 中移除已删除的图片
             const deletedIds = new Set(allSelectedImages.map(img => img.id))
-            imagesRef.current = imagesRef.current.filter(img => !deletedIds.has(img.id))
-
             setImageState(prev => ({
               ...prev,
               images: prev.images.filter(img => !deletedIds.has(img.id))
@@ -379,10 +303,6 @@ function SensitiveWordPage() {
     )
   }
 
-  const visibleImages = useMemo(() => {
-    return imageState.images.slice(0, visibleCount)
-  }, [imageState.images, visibleCount])
-
   return (
     <>
       <SensitiveSidebar
@@ -397,7 +317,6 @@ function SensitiveWordPage() {
       <main style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Toolbar
           totalImages={imageState.images.length}
-          visibleCount={visibleCount} // 传入当前可见数量
           selectedCount={selectedCount}
           allSelected={allSelected}
           onSelectAll={handleSelectAll}
@@ -409,17 +328,12 @@ function SensitiveWordPage() {
         <div ref={gridRef} style={{ flex: 1, overflow: 'auto', padding: '16px', position: 'relative' }}>
           <PerformanceStats />
           <ImageGrid
-            images={visibleImages} // 使用 useMemo 优化的数据
-            totalImages={imageState.images.length} // 传入总数用于显示
+            images={imageState.images}
+            totalImages={imageState.images.length}
             loading={imageState.loading}
             onToggleSelect={handleToggleSelect}
             onDeleteSelected={handleDeleteSelected}
           />
-          {visibleCount < imageState.images.length && (
-            <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
-              已显示 {visibleCount} / {imageState.images.length} 张图片，向下滚动加载更多...
-            </div>
-          )}
 
           {/* 返回顶部按钮 - 数据超过200条时显示 */}
           {showBackToTop && imageState.images.length > 200 && (

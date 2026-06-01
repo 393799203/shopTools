@@ -465,19 +465,18 @@ function createApiServer() {
   })
 
   // ============================================
-  // 🚀 核心优化 2: 高性能扫描引擎（流式版本）
+  // 🚀 核心优化 2: 高性能扫描引擎（同步版本）
   // ============================================
   apiApp.post('/api/scan', async (req, res) => {
     const startTime = Date.now()
 
     try {
-      const { folderPath, batchSize = 50 } = req.body
+      const { folderPath } = req.body
 
       if (!folderPath || !fs.existsSync(folderPath)) {
         return res.status(400).json({ success: false, error: '文件夹路径无效' })
       }
 
-      // 获取敏感词列表
       const words = [...localWords.values()].map(item => item.word)
 
       if (words.length === 0) {
@@ -493,11 +492,10 @@ function createApiServer() {
         })
       }
 
-      console.log(`\n🎯 流式扫描模式启动`)
+      console.log(`\n🎯 同步扫描模式启动`)
       console.log(`📊 敏感词数量: ${words.length}`)
       console.log(`📂 扫描目录: ${folderPath}`)
 
-      // 🎯 优化点 1: 复用 AC 自动机（避免重复构建）
       const currentWordsHash = words.join('|')
       if (!acAutomaton || lastWordsHash !== currentWordsHash) {
         console.log(`🔧 构建 Aho-Corasick 自动机...`)
@@ -513,38 +511,10 @@ function createApiServer() {
         console.log(`♻️  复用已有自动机`)
       }
 
-      // 设置流式响应头
-      console.log('🚀 [后端] 设置流式响应头...')
-      res.writeHead(200, {
-        'Content-Type': 'application/x-ndjson',
-        'Transfer-Encoding': 'chunked',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive'
-      })
-
-      // 发送开始标记
-      console.log('📤 [后端] 发送 start 事件...')
-      res.write(JSON.stringify({ type: 'start', stats: { wordsCount: words.length, startTime } }) + '\n')
-
       const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'])
       let totalFilesScanned = 0
-      let matchedCount = 0
-      let batchImages = []
+      const matchedImages = []
 
-      const flushBatch = () => {
-        if (batchImages.length > 0) {
-          console.log(`📦 [后端] 发送数据批次: ${batchImages.length} 张图片 (累计: ${matchedCount + batchImages.length} 张)`)
-          res.write(JSON.stringify({
-            type: 'data',
-            data: batchImages,
-            count: batchImages.length
-          }) + '\n')
-          matchedCount += batchImages.length
-          batchImages = []
-        }
-      }
-
-      // 同步递归遍历
       function scanDirectorySync(dirPath) {
         let entries
         try {
@@ -571,79 +541,50 @@ function createApiServer() {
                 const matchedWords = acAutomaton.search(fileNameNoExt)
 
                 if (matchedWords.length > 0) {
-                  batchImages.push({
+                  matchedImages.push({
                     id: uuidv4(),
                     path: fullPath,
                     name: entry.name,
                     matchedWords,
-                    selected: true
+                    selected: false
                   })
-
-                  // 达到批次大小就发送
-                  if (batchImages.length >= batchSize) {
-                    flushBatch()
-                  }
                 }
               }
             }
           } catch (error) {
-            // 忽略单个文件错误
           }
         }
       }
 
-      console.log(`\n📂 开始流式扫描...`)
+      console.log(`\n📂 开始同步扫描...`)
 
       scanDirectorySync(folderPath)
 
-      // 发送最后一批数据
-      flushBatch()
-
       const scanTime = Date.now() - startTime
 
-      console.log(`\n✅ 流式扫描完成:`)
+      console.log(`\n✅ 同步扫描完成:`)
       console.log(`   总文件数: ${totalFilesScanned}`)
-      console.log(`   匹配文件: ${matchedCount}`)
+      console.log(`   匹配文件: ${matchedImages.length}`)
       console.log(`   扫描耗时: ${scanTime}ms`)
       console.log(`   平均速度: ${(totalFilesScanned / (scanTime / 1000)).toFixed(0)} 文件/秒\n`)
 
-      // 发送完成标记和统计信息
-      res.write(JSON.stringify({
-        type: 'end',
+      res.json({
+        success: true,
+        data: matchedImages,
         stats: {
           totalFiles: totalFilesScanned,
-          matchedFiles: matchedCount,
+          matchedFiles: matchedImages.length,
           totalTime: scanTime,
           scanTime,
           thumbnailTime: 0,
-          algorithm: 'aho-corasick',
-          wordsCount: words.length,
-          asyncThumbnails: true
+          algorithm: 'aho-corasick-sync',
+          wordsCount: words.length
         }
-      }) + '\n')
-
-      res.end()
-
-      // 后台异步生成缩略图（收集所有图片）
-      const allMatchedImages = []
-      // 注意：这里需要从已发送的数据中重建，或者改为在发送时同时保存
-      // 为了简单起见，我们在这里不生成，让前端按需请求即可
+      })
 
     } catch (error) {
       console.error('Error scanning folder:', error)
-
-      // 如果还没发送任何数据，返回错误 JSON
-      if (!res.headersSent) {
-        res.status(500).json({ success: false, error: error.message })
-      } else {
-        // 如果已经开始流式传输，发送错误事件
-        try {
-          res.write(JSON.stringify({ type: 'error', error: error.message }) + '\n')
-          res.end()
-        } catch (e) {
-          // 忽略写入错误
-        }
-      }
+      res.status(500).json({ success: false, error: error.message })
     }
   })
 
