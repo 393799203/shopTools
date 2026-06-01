@@ -141,15 +141,16 @@ function SensitiveWordPage() {
 
       if (result.success) {
         console.log(`📊 [页面] 扫描完成，找到 ${result.data.length} 张匹配图片`)
+        const imagesWithSelection = result.data.map(img => ({ ...img, selected: true }))
         setImageState({
-          images: result.data,
+          images: imagesWithSelection,
           loading: false,
           currentFolder: folderPath,
           stats: result.stats
         })
 
         if (result.data.length > 0) {
-          message.success(`找到 ${result.data.length} 张匹配的图片`)
+          message.success(`找到 ${result.data.length} 张匹配的图片（已自动全选）`)
         } else {
           message.info('未找到匹配的图片')
         }

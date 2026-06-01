@@ -1,0 +1,57 @@
+
+> imgguard@1.0.0 build:mac
+> npm run rebuild && tsc && vite build && electron-builder --mac
+
+
+> imgguard@1.0.0 rebuild
+> electron-rebuild -f -w sharp
+
+- Searching dependency tree
+✔ Rebuild Complete
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+vite v5.4.21 building for production...
+transforming...
+✓ 3016 modules transformed.
+[plugin:vite:reporter] [plugin vite:reporter] 
+(!) /Users/dingyuebo/projects/shopTools/node_modules/antd/es/index.js is dynamically imported by /Users/dingyuebo/projects/shopTools/src/pages/SensitiveWordPage.tsx but also statically imported by /Users/dingyuebo/projects/shopTools/src/components/ActivationPanel.tsx, /Users/dingyuebo/projects/shopTools/src/components/Header.tsx, /Users/dingyuebo/projects/shopTools/src/components/ImageCard.tsx, /Users/dingyuebo/projects/shopTools/src/components/ImageGrid.tsx, /Users/dingyuebo/projects/shopTools/src/components/Layout.tsx, /Users/dingyuebo/projects/shopTools/src/components/LicenseKeyInput.tsx, /Users/dingyuebo/projects/shopTools/src/components/SensitiveSidebar.tsx, /Users/dingyuebo/projects/shopTools/src/components/Toolbar.tsx, /Users/dingyuebo/projects/shopTools/src/contexts/AuthProvider.tsx, /Users/dingyuebo/projects/shopTools/src/pages/SensitiveWordPage.tsx, dynamic import will not move module into another chunk.
+
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:   0.36 kB
+dist/assets/index-DyKi_V5S.css    0.33 kB │ gzip:   0.26 kB
+dist/assets/index-CF2YpAcY.js   755.85 kB │ gzip: 245.45 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.92s
+  • electron-builder  version=24.13.3 os=22.6.0
+  • loaded configuration  file=/Users/dingyuebo/projects/shopTools/electron-builder.json
+  • author is missed in the package.json  appPackageFile=/Users/dingyuebo/projects/shopTools/package.json
+  • @electron/rebuild not required if you use electron-builder, please consider to remove excess dependency from devDependencies
+
+To ensure your native dependencies are always matched electron version, simply add script `"postinstall": "electron-builder install-app-deps" to your `package.json`
+  • packaging       platform=darwin arch=x64 electron=28.3.3 appOutDir=release/mac
+  • skipped macOS application code signing  reason=cannot find valid "Developer ID Application" identity or custom non-Apple code signing certificate, it could cause some undefined behaviour, e.g. macOS localized description not visible, see https://electron.build/code-signing allIdentities=     0 identities found
+                                                Valid identities only
+     0 valid identities found
+  • building        target=DMG arch=x64 file=release/ImgGuard-1.0.0.dmg
+  • building        target=macOS zip arch=x64 file=release/ImgGuard-1.0.0-mac.zip
+  • Above command failed, retrying 5 more times
+  • Above command failed, retrying 4 more times
+  • Above command failed, retrying 3 more times
+  • Above command failed, retrying 2 more times
+  • Above command failed, retrying 1 more times
+  • Above command failed, retrying 0 more times
+  • building block map  blockMapFile=release/ImgGuard-1.0.0-mac.zip.blockmap
+  ⨯ hdiutil process failed ERR_ELECTRON_BUILDER_CANNOT_EXECUTE
+Exit code:
+1  failedTask=build stackTrace=Error: hdiutil process failed ERR_ELECTRON_BUILDER_CANNOT_EXECUTE
+Exit code:
+1
+    at ChildProcess.<anonymous> (/Users/dingyuebo/projects/shopTools/node_modules/builder-util/src/util.ts:252:14)
+    at Object.onceWrapper (node:events:623:26)
+    at ChildProcess.emit (node:events:508:28)
+    at maybeClose (node:internal/child_process:1100:16)
+    at Process.ChildProcess._handle.onexit (node:internal/child_process:305:5)
