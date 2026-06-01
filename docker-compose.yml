@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: server-api/Dockerfile
+    container_name: picfilter-api
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=picfilter
+      - DB_USER=picfilter
+      - DB_PASS=PicFilter2024Secure!
+      - ADMIN_SECRET=ImgGuardAdmin2024Secure!
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - picfilter-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: picfilter-postgres
+    environment:
+      - POSTGRES_DB=picfilter
+      - POSTGRES_USER=picfilter
+      - POSTGRES_PASSWORD=PicFilter2024Secure!
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server-api/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U picfilter"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - picfilter-network
+
+volumes:
+  postgres_data:
+
+networks:
+  picfilter-network:
+    driver: bridge

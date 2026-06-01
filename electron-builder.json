@@ -1,0 +1,57 @@
+{
+  "appId": "com.imgguard.app",
+  "productName": "ImgGuard",
+  "copyright": "Copyright © 2026 ImgGuard",
+  "npmRebuild": true,
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/dev-main.cjs",
+    "electron/preload.cjs",
+    "node_modules/**/*",
+    "!node_modules/**/node_modules/**/*"
+  ],
+  "asarUnpack": [
+    "node_modules/sharp/**/*",
+    "node_modules/@img/**/*"
+  ],
+  "extraMetadata": {
+    "main": "electron/dev-main.cjs"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "public/ImgGuard.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "ImgGuard"
+  },
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "public/ImgGuard.icns",
+    "category": "public.app-category.utilities"
+  },
+  "linux": {
+    "target": ["AppImage"]
+  }
+}
