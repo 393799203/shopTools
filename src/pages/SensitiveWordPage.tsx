@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { message, Statistic, Row, Col, Card as AntCard, Tag, Button } from 'antd'
 import {
   ClockCircleOutlined,
@@ -101,7 +101,7 @@ function SensitiveWordPage() {
     }
   }
 
-  const handleAddWord = async (word: string) => {
+  const handleAddWord = useCallback(async (word: string) => {
     try {
       const result = await api.addWord(word)
       if (result.success) {
@@ -116,9 +116,9 @@ function SensitiveWordPage() {
       message.error('添加失败')
       return false
     }
-  }
+  }, [])
 
-  const handleDeleteWord = async (id: string) => {
+  const handleDeleteWord = useCallback(async (id: string) => {
     try {
       const result = await api.deleteWord(id)
       if (result.success) {
@@ -128,9 +128,9 @@ function SensitiveWordPage() {
     } catch (error) {
       message.error('删除失败')
     }
-  }
+  }, [])
 
-  const handleRefreshWords = async () => {
+  const handleRefreshWords = useCallback(async () => {
     setWordsLoading(true)
     try {
       const result = await api.getWords()
@@ -143,7 +143,7 @@ function SensitiveWordPage() {
     } finally {
       setWordsLoading(false)
     }
-  }
+  }, [])
 
   const handleScanFolder = async (folderPath: string) => {
     const scanStartTime = performance.now()
@@ -237,14 +237,14 @@ function SensitiveWordPage() {
     await handleScanFolder(imageState.currentFolder)
   }
 
-  const handleToggleSelect = (imageId: string) => {
+  const handleToggleSelect = useCallback((imageId: string) => {
     setImageState(prev => ({
       ...prev,
       images: prev.images.map(img =>
         img.id === imageId ? { ...img, selected: !img.selected } : img
       )
     }))
-  }
+  }, [])
 
   // 全选/取消全选：选中所有图片（包括未显示的）
   const handleSelectAll = (selected: boolean) => {
@@ -379,6 +379,10 @@ function SensitiveWordPage() {
     )
   }
 
+  const visibleImages = useMemo(() => {
+    return imageState.images.slice(0, visibleCount)
+  }, [imageState.images, visibleCount])
+
   return (
     <>
       <SensitiveSidebar
@@ -405,7 +409,7 @@ function SensitiveWordPage() {
         <div ref={gridRef} style={{ flex: 1, overflow: 'auto', padding: '16px', position: 'relative' }}>
           <PerformanceStats />
           <ImageGrid
-            images={imageState.images.slice(0, visibleCount)} // 只渲染前 visibleCount 个
+            images={visibleImages} // 使用 useMemo 优化的数据
             totalImages={imageState.images.length} // 传入总数用于显示
             loading={imageState.loading}
             onToggleSelect={handleToggleSelect}

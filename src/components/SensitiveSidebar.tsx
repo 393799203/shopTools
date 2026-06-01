@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Button, Input, Tag, Popconfirm, Typography, Space, message, Alert, Spin } from 'antd'
 import { FolderOpenOutlined, PlusOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons'
 
@@ -25,9 +25,11 @@ const SensitiveSidebar = ({ words, wordsLoading, onAddWord, onDeleteWord, onRefr
     setIsElectron(!!window?.electronAPI?.openFolderDialog)
   }, [])
 
-  const filteredWords = searchKeyword.trim()
-    ? words.filter(item => item.word.toLowerCase().includes(searchKeyword.toLowerCase().trim()))
-    : words
+  const filteredWords = useMemo(() => {
+    return searchKeyword.trim()
+      ? words.filter(item => item.word.toLowerCase().includes(searchKeyword.toLowerCase().trim()))
+      : words
+  }, [words, searchKeyword])
 
   const handleAddWord = async () => {
     const wordToAdd = newWord.trim() || searchKeyword.trim()

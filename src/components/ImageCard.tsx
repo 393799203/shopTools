@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, memo } from 'react'
 import { Card, Checkbox, Tag, Typography, Tooltip, Modal, Image, Spin } from 'antd'
 import { FileImageOutlined, ZoomInOutlined, LoadingOutlined } from '@ant-design/icons'
 import { MatchedImage } from '../types'
