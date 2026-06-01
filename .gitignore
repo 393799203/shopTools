@@ -6,3 +6,4 @@ release/
 .thumbnails/
 .env
 .DS_Store
+.sensitive-words-*.json
