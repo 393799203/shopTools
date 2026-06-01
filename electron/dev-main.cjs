@@ -575,8 +575,7 @@ function createApiServer() {
                     id: uuidv4(),
                     path: fullPath,
                     name: entry.name,
-                    matchedWords,
-                    selected: true
+                    matchedWords
                   })
 
                   // 达到批次大小就发送

@@ -8,6 +8,7 @@ const { Text } = Typography
 
 interface ImageCardProps {
   image: MatchedImage
+  selected: boolean
   onToggleSelect: (imageId: string) => void
 }
 
@@ -78,10 +79,13 @@ const highlightText = (text: string, words: string[]): React.ReactNode => {
 }
 
 // 使用 React.memo 优化性能，只在 props 变化时重新渲染
-const ImageCardComponent: React.FC<ImageCardProps> = ({ image, onToggleSelect }) => {
+const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggleSelect }) => {
   const [imgError, setImgError] = useState(false)
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(image.thumbnailUrl || null)
   const [loading, setLoading] = useState(false)
+
+  const fileName = useMemo(() => image.name.replace(/\.[^/.]+$/, ''), [image.name])
+  const highlightedName = useMemo(() => highlightText(fileName, image.matchedWords), [fileName, image.matchedWords])
 
   useEffect(() => {
     if (image.thumbnailUrl) {
@@ -120,14 +124,7 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, onToggleSelect })
     e.stopPropagation()
 
     Modal.info({
-      title: (
-        <span>
-          {highlightText(
-            image.name.replace(/\.[^/.]+$/, ''),
-            image.matchedWords
-          )}
-        </span>
-      ),
+      title: highlightedName,
       content: (
         <div style={{ textAlign: 'center', padding: '20px' }}>
           <Image
@@ -164,7 +161,7 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, onToggleSelect })
       hoverable
       style={{
         height: '100%',
-        border: image.selected ? '2px solid #1890ff' : '1px solid #f0f0f0',
+        border: selected ? '2px solid #1890ff' : '1px solid #f0f0f0',
         position: 'relative',
         overflow: 'hidden'
       }}
@@ -172,7 +169,7 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, onToggleSelect })
       onClick={() => onToggleSelect(image.id)}
     >
       <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 10 }}>
-        <Checkbox checked={image.selected} />
+        <Checkbox checked={selected} />
       </div>
 
       <div
@@ -238,10 +235,7 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, onToggleSelect })
             minHeight: '20px'
           }}
         >
-          {highlightText(
-            image.name.replace(/\.[^/.]+$/, ''),
-            image.matchedWords
-          )}
+          {highlightedName}
         </Text>
       </Tooltip>
 
@@ -265,8 +259,8 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, onToggleSelect })
 // 自定义比较函数：只在关键 props 变化时重新渲染
 function areEqual(prevProps: ImageCardProps, nextProps: ImageCardProps): boolean {
   return (
+    prevProps.selected === nextProps.selected &&
     prevProps.image.id === nextProps.image.id &&
-    prevProps.image.selected === nextProps.image.selected &&
     prevProps.image.path === nextProps.image.path &&
     prevProps.image.name === nextProps.image.name &&
     JSON.stringify(prevProps.image.matchedWords) === JSON.stringify(nextProps.image.matchedWords)

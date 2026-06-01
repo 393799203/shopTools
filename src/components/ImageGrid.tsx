@@ -5,8 +5,9 @@ import { MatchedImage } from '../types'
 
 interface ImageGridProps {
   images: MatchedImage[]
-  totalImages?: number // 总数（用于分批加载显示）
+  totalImages?: number
   loading: boolean
+  selectedIds: Set<string>
   onToggleSelect: (imageId: string) => void
   onDeleteSelected: () => void
 }
@@ -17,6 +18,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({
   images,
   totalImages,
   loading,
+  selectedIds,
   onToggleSelect
 }) => {
   const screens = useBreakpoint()
@@ -65,6 +67,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({
         <ImageCard
           key={image.id}
           image={image}
+          selected={selectedIds.has(image.id)}
           onToggleSelect={onToggleSelect}
         />
       ))}

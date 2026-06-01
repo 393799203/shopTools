@@ -23,22 +23,24 @@ interface ScanStats {
   wordsCount: number
 }
 
-interface ImageState {
-  images: MatchedImage[]
-  loading: boolean
-  currentFolder: string | null
-  stats?: ScanStats
-}
-
 function SensitiveWordPage() {
-  const [imageState, setImageState] = useState<ImageState>({
-    images: [],
-    loading: false,
-    currentFolder: null
-  })
+  const [images, setImages] = useState<MatchedImage[]>([])
 
   // 使用 ref 追踪最新的 images，避免闭包陷阱
   const imagesRef = useRef<MatchedImage[]>([])
+
+  // 选中状态独立管理（Set 查找 O(1)，不污染 images 数组）
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const selectedIdsRef = useRef<Set<string>>(new Set())
+
+  // 同步 ref
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds
+  }, [selectedIds])
+
+  const [loading, setLoading] = useState(false)
+  const [currentFolder, setCurrentFolder] = useState<string | null>(null)
+  const [stats, setStats] = useState<ScanStats | undefined>()
 
   // 分批渲染控制：初始只显示前 50 个，避免一次性渲染 990 个组件
   const [visibleCount, setVisibleCount] = useState(50)
@@ -49,7 +51,10 @@ function SensitiveWordPage() {
   const [showBackToTop, setShowBackToTop] = useState(false)
   const SCROLL_THRESHOLD = 300 // 滚动超过这个距离显示按钮
 
-  // 监听滚动，动态加载更多 + 控制返回顶部按钮
+  // 监听滚动，动态加载更多 + 控制返回顶部按钮（使用 ref 避免反复 bind/unbind）
+  const visibleCountRef = useRef(visibleCount)
+  visibleCountRef.current = visibleCount
+
   useEffect(() => {
     const gridElement = gridRef.current
     if (!gridElement) return
@@ -57,18 +62,16 @@ function SensitiveWordPage() {
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = gridElement
 
-      // 当滚动到底部附近时（距离底部 200px），加载更多
-      if (scrollHeight - scrollTop - clientHeight < 200 && visibleCount < imagesRef.current.length) {
+      if (scrollHeight - scrollTop - clientHeight < 500 && visibleCountRef.current < imagesRef.current.length) {
         setVisibleCount(prev => Math.min(prev + BATCH_SIZE, imagesRef.current.length))
       }
 
-      // 控制返回顶部按钮显示/隐藏
       setShowBackToTop(scrollTop > SCROLL_THRESHOLD)
     }
 
     gridElement.addEventListener('scroll', handleScroll)
     return () => gridElement.removeEventListener('scroll', handleScroll)
-  }, [visibleCount])
+  }, [])
 
   // 返回顶部函数
   const scrollToTop = () => {
@@ -148,10 +151,12 @@ function SensitiveWordPage() {
   const handleScanFolder = async (folderPath: string) => {
     const scanStartTime = performance.now()
     console.log('🎯 [页面] 开始扫描文件夹:', folderPath)
-    // 重置 ref 和可见数量
     imagesRef.current = []
-    setVisibleCount(50) // 重置为初始值
-    setImageState(prev => ({ ...prev, loading: true, images: [], stats: undefined }))
+    setVisibleCount(50)
+    setSelectedIds(new Set())
+    setLoading(true)
+    setImages([])
+    setStats(undefined)
 
     try {
       const apiCallStart = performance.now()
@@ -173,11 +178,9 @@ function SensitiveWordPage() {
           // 只在必要时更新 state（减少渲染次数）
           if (imagesRef.current.length <= 100 || imagesRef.current.length % 100 === 0) {
             const renderStart = performance.now()
-            setImageState(prev => ({
-              ...prev,
-              images: imagesRef.current,
-              loading: false
-            }))
+            setImages(imagesRef.current)
+            setSelectedIds(new Set(imagesRef.current.map(img => img.id)))
+            setLoading(false)
             // 使用 requestAnimationFrame 测量实际渲染时间
             requestAnimationFrame(() => {
               const renderEnd = performance.now()
@@ -188,12 +191,11 @@ function SensitiveWordPage() {
           // 扫描完成 - 强制更新最终状态
           console.log('🏁 [页面] 扫描完成，统计:', event.stats)
           const finalRenderStart = performance.now()
-          setImageState({
-            images: imagesRef.current,
-            loading: false,
-            currentFolder: folderPath,
-            stats: event.stats
-          })
+          setImages(imagesRef.current)
+          setSelectedIds(new Set(imagesRef.current.map(img => img.id)))
+          setLoading(false)
+          setCurrentFolder(folderPath)
+          setStats(event.stats)
           requestAnimationFrame(() => {
             const finalRenderEnd = performance.now()
             const totalTime = (finalRenderEnd - scanStartTime).toFixed(0)
@@ -207,60 +209,60 @@ function SensitiveWordPage() {
       if (result.success && Array.isArray(result.data) && result.data.length > 0 && imagesRef.current.length === 0) {
         console.log('📊 [页面] 使用最终结果:', result.data.length, '张')
         imagesRef.current = result.data
-        setImageState({
-          images: result.data,
-          loading: false,
-          currentFolder: folderPath,
-          stats: result.stats
-        })
+        setImages(result.data)
+        setSelectedIds(new Set(result.data.map(img => img.id)))
+        setLoading(false)
+        setCurrentFolder(folderPath)
+        setStats(result.stats)
         message.success(`找到 ${result.data.length} 张匹配的图片`)
       }
 
       const totalImages = imagesRef.current.length
-      if (totalImages === 0 && !imageState.loading) {
+      if (totalImages === 0 && !loading) {
         message.info('未找到匹配的图片')
       }
 
     } catch (error) {
       console.error('❌ [页面] 扫描失败:', error)
       message.error('扫描失败')
-      setImageState(prev => ({ ...prev, loading: false }))
+      setLoading(false)
     }
   }
 
   const handleRescan = async () => {
-    if (!imageState.currentFolder) {
+    if (!currentFolder) {
       message.warning('请先选择文件夹')
       return
     }
 
-    await handleScanFolder(imageState.currentFolder)
+    await handleScanFolder(currentFolder)
   }
 
   const handleToggleSelect = useCallback((imageId: string) => {
-    setImageState(prev => ({
-      ...prev,
-      images: prev.images.map(img =>
-        img.id === imageId ? { ...img, selected: !img.selected } : img
-      )
-    }))
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(imageId)) {
+        next.delete(imageId)
+      } else {
+        next.add(imageId)
+      }
+      return next
+    })
   }, [])
 
   // 全选/取消全选：选中所有图片（包括未显示的）
   const handleSelectAll = (selected: boolean) => {
-    setImageState(prev => ({
-      ...prev,
-      images: prev.images.map(img => ({ ...img, selected }))
-    }))
-
     if (selected) {
-      message.success(`已选中全部 ${imageState.images.length} 张图片`)
+      setSelectedIds(new Set(images.map(img => img.id)))
+      message.success(`已选中全部 ${images.length} 张图片`)
+    } else {
+      setSelectedIds(new Set())
     }
   }
 
   // 删除所有选中的图片（全量删除）
   const handleDeleteSelected = async () => {
-    const allSelectedImages = imageState.images.filter(img => img.selected)
+    const allSelectedImages = images.filter(img => selectedIds.has(img.id))
 
     if (allSelectedImages.length === 0) {
       message.warning('请先选择要删除的图片')
@@ -268,14 +270,14 @@ function SensitiveWordPage() {
     }
 
     const totalCount = allSelectedImages.length
-    const visibleSelectedCount = imageState.images.slice(0, visibleCount).filter(img => img.selected).length
+    const visibleSelectedCount = images.slice(0, visibleCount).filter(img => selectedIds.has(img.id)).length
 
     // 构建明确的提示信息
     let confirmMessage = `确定要删除 ${totalCount} 张图片吗？\n\n`
     confirmMessage += `📊 操作详情：\n`
     confirmMessage += `• 总共选中：${totalCount} 张\n`
     
-    if (visibleCount < imageState.images.length) {
+    if (visibleCount < images.length) {
       confirmMessage += `• 当前显示区域：${visibleSelectedCount} 张\n`
       confirmMessage += `• 未显示区域：${totalCount - visibleSelectedCount} 张\n`
       confirmMessage += `\n⚠️ 将删除所有匹配的图片（包括未在当前视图中显示的）`
@@ -299,11 +301,12 @@ function SensitiveWordPage() {
             // 从 imagesRef 和 state 中移除已删除的图片
             const deletedIds = new Set(allSelectedImages.map(img => img.id))
             imagesRef.current = imagesRef.current.filter(img => !deletedIds.has(img.id))
-
-            setImageState(prev => ({
-              ...prev,
-              images: prev.images.filter(img => !deletedIds.has(img.id))
-            }))
+            setImages(prev => prev.filter(img => !deletedIds.has(img.id)))
+            setSelectedIds(prev => {
+              const next = new Set(prev)
+              deletedIds.forEach(id => next.delete(id))
+              return next
+            })
           }
         } catch (error) {
           message.error('删除失败')
@@ -312,9 +315,8 @@ function SensitiveWordPage() {
     })
   }
 
-  // 计算总选中数量（用于 Toolbar 显示）
-  const selectedCount = imageState.images.filter(img => img.selected).length
-  const allSelected = imageState.images.length > 0 && imageState.images.every(img => img.selected)
+  const selectedCount = selectedIds.size
+  const allSelected = images.length > 0 && selectedIds.size === images.length
 
   const formatTime = (ms: number) => {
     if (ms < 1000) return `${ms}ms`
@@ -328,60 +330,62 @@ function SensitiveWordPage() {
   }
 
   const getThroughput = () => {
-    if (!imageState.stats) return 0
-    const { totalFiles, totalTime } = imageState.stats
+    if (!stats) return 0
+    const { totalFiles, totalTime } = stats
     if (totalTime === 0) return 0
     return Math.round(totalFiles / (totalTime / 1000))
   }
 
   const PerformanceStats = () => {
-    if (!imageState.stats) return null
-
-    const { stats } = imageState
+    if (!stats) return null
 
     return (
       <AntCard 
         size="small" 
-        style={{ marginBottom: 16, background: '#f6ffed', borderColor: '#b7eb8f' }}
+        style={{ marginBottom: 12, background: '#f6ffed', borderColor: '#b7eb8f' }}
+        styles={{ body: { padding: '8px 12px' } }}
         title={
-          <span>
-            <ThunderboltOutlined style={{ color: '#52c41a', marginRight: 8 }} />
-            <strong>性能统计</strong>
-            <Tag color="green" style={{ marginLeft: 12 }}>{stats.algorithm}</Tag>
+          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', paddingRight: 12 }}>
+            <span>
+              <ThunderboltOutlined style={{ color: '#52c41a', marginRight: 6 }} />
+              <strong style={{ fontSize: '13px' }}>性能统计</strong>
+              <Tag color="green" style={{ marginLeft: 8, fontSize: '11px', padding: '0 6px', lineHeight: '18px' }}>{stats.algorithm}</Tag>
+            </span>
+            <span>
+              <Tag color="blue" style={{ fontSize: '11px', padding: '0 6px', lineHeight: '18px' }}>敏感词: {stats.wordsCount} 个</Tag>
+              <Tag color="purple" style={{ fontSize: '11px', padding: '0 6px', lineHeight: '18px' }}>匹配率: {((stats.matchedFiles / stats.totalFiles) * 100).toFixed(2)}%</Tag>
+            </span>
           </span>
         }
       >
-        <Row gutter={16}>
+        <Row gutter={12}>
           <Col span={4}>
-            <Statistic title="扫描文件" value={stats.totalFiles} prefix={<FileImageOutlined />} suffix="张" valueStyle={{ fontSize: '16px' }} />
+            <Statistic title="扫描文件" value={stats.totalFiles} prefix={<FileImageOutlined />} suffix="张" valueStyle={{ fontSize: '14px' }} />
           </Col>
           <Col span={4}>
-            <Statistic title="匹配文件" value={stats.matchedFiles} prefix={<CheckCircleOutlined />} suffix="张" valueStyle={{ fontSize: '16px', color: '#cf1322' }} />
+            <Statistic title="匹配文件" value={stats.matchedFiles} prefix={<CheckCircleOutlined />} suffix="张" valueStyle={{ fontSize: '14px', color: '#cf1322' }} />
           </Col>
           <Col span={4}>
-            <Statistic title="总耗时" value={formatTime(stats.totalTime)} prefix={<ClockCircleOutlined />} valueStyle={{ fontSize: '16px' }} />
+            <Statistic title="总耗时" value={formatTime(stats.totalTime)} prefix={<ClockCircleOutlined />} valueStyle={{ fontSize: '14px' }} />
           </Col>
           <Col span={4}>
-            <Statistic title="扫描耗时" value={formatTime(stats.scanTime)} prefix={<ClockCircleOutlined />} valueStyle={{ fontSize: '16px' }} />
+            <Statistic title="扫描耗时" value={formatTime(stats.scanTime)} prefix={<ClockCircleOutlined />} valueStyle={{ fontSize: '14px' }} />
           </Col>
           <Col span={4}>
-            <Statistic title="缩略图生成" value={formatThumbnailTime(stats.thumbnailTime)} prefix={<ClockCircleOutlined />} valueStyle={{ fontSize: '16px', color: stats.thumbnailTime === 0 ? '#1890ff' : undefined }} />
+            <Statistic title="缩略图生成" value={formatThumbnailTime(stats.thumbnailTime)} prefix={<ClockCircleOutlined />} valueStyle={{ fontSize: '14px', color: stats.thumbnailTime === 0 ? '#1890ff' : undefined }} />
           </Col>
           <Col span={4}>
-            <Statistic title="处理速度" value={getThroughput()} prefix={<ThunderboltOutlined />} suffix="张/秒" valueStyle={{ fontSize: '16px', color: '#1890ff' }} />
+            <Statistic title="处理速度" value={getThroughput()} prefix={<ThunderboltOutlined />} suffix="张/秒" valueStyle={{ fontSize: '14px', color: '#1890ff' }} />
           </Col>
         </Row>
-        <div style={{ marginTop: 8, textAlign: 'center' }}>
-          <Tag color="blue">敏感词: {stats.wordsCount} 个</Tag>
-          <Tag color="purple">匹配率: {((stats.matchedFiles / stats.totalFiles) * 100).toFixed(2)}%</Tag>
-        </div>
+        <style>{`.ant-statistic-title { font-size: 11px !important; margin-bottom: 2px !important; }`}</style>
       </AntCard>
     )
   }
 
   const visibleImages = useMemo(() => {
-    return imageState.images.slice(0, visibleCount)
-  }, [imageState.images, visibleCount])
+    return images.slice(0, visibleCount)
+  }, [images, visibleCount])
 
   return (
     <>
@@ -392,37 +396,38 @@ function SensitiveWordPage() {
         onDeleteWord={handleDeleteWord}
         onRefreshWords={handleRefreshWords}
         onScanFolder={handleScanFolder}
-        currentFolder={imageState.currentFolder}
+        currentFolder={currentFolder}
       />
       <main style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Toolbar
-          totalImages={imageState.images.length}
+          totalImages={images.length}
           visibleCount={visibleCount} // 传入当前可见数量
           selectedCount={selectedCount}
           allSelected={allSelected}
           onSelectAll={handleSelectAll}
           onDeleteSelected={handleDeleteSelected}
           onRescan={handleRescan}
-          loading={imageState.loading}
-          hasFolder={!!imageState.currentFolder}
+          loading={loading}
+          hasFolder={!!currentFolder}
         />
         <div ref={gridRef} style={{ flex: 1, overflow: 'auto', padding: '16px', position: 'relative' }}>
           <PerformanceStats />
           <ImageGrid
-            images={visibleImages} // 使用 useMemo 优化的数据
-            totalImages={imageState.images.length} // 传入总数用于显示
-            loading={imageState.loading}
+            images={visibleImages}
+            totalImages={images.length}
+            loading={loading}
+            selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
             onDeleteSelected={handleDeleteSelected}
           />
-          {visibleCount < imageState.images.length && (
+          {visibleCount < images.length && (
             <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
-              已显示 {visibleCount} / {imageState.images.length} 张图片，向下滚动加载更多...
+              已显示 {visibleCount} / {images.length} 张图片，向下滚动加载更多...
             </div>
           )}
 
           {/* 返回顶部按钮 - 数据超过200条时显示 */}
-          {showBackToTop && imageState.images.length > 200 && (
+          {showBackToTop && images.length > 200 && (
             <Button
               type="primary"
               icon={<ArrowUpOutlined style={{ fontSize: '24px', fontWeight: 'bold', strokeWidth: '3px' }} />}

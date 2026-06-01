@@ -4,7 +4,6 @@ export interface MatchedImage {
   name: string
   matchedWords: string[]
   thumbnailUrl?: string
-  selected: boolean
 }
 
 export interface SensitiveWord {
