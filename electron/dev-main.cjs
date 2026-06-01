@@ -304,7 +304,7 @@ async function generateThumbnailsAsync(images) {
       const generatePromise = (async () => {
         const imgBuffer = fs.readFileSync(img.path)
         await sharp(imgBuffer)
-          .resize(200, 200, { fit: 'inside' })
+          .resize(300, 300, { fit: 'inside' })
           .jpeg({ quality: 80 })
           .toFile(thumbnailPath)
         img.thumbnailUrl = `http://localhost:${serverPort}/thumbnails/${thumbnailHash}.jpg`
@@ -354,7 +354,7 @@ async function generateSingleThumbnail(imagePath) {
     const generatePromise = (async () => {
       const imgBuffer = fs.readFileSync(imagePath)
       await sharp(imgBuffer)
-        .resize(200, 200, { fit: 'inside' })
+        .resize(300, 300, { fit: 'inside' })
         .jpeg({ quality: 80 })
         .toFile(thumbnailPath)
     })()

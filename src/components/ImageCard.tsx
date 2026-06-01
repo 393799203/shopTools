@@ -163,25 +163,26 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggl
         height: '100%',
         border: selected ? '2px solid #1890ff' : '1px solid #f0f0f0',
         position: 'relative',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        padding: 0,
+        aspectRatio: '3 / 4'
       }}
-      styles={{ body: { padding: '12px' } }}
+      styles={{ body: { padding: 0, height: '100%', position: 'relative' } }}
       onClick={() => onToggleSelect(image.id)}
     >
       <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 10 }}>
-        <Checkbox checked={selected} style={{ transition: 'none' }} />
+        <Checkbox checked={selected} onClick={e => e.stopPropagation()} style={{ transition: 'none' }} />
       </div>
 
       <div
         style={{
           width: '100%',
-          height: '180px',
+          height: '100%',
+          minHeight: '220px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           background: '#fafafa',
-          borderRadius: '6px',
-          marginBottom: '12px',
           overflow: 'hidden',
           cursor: 'pointer',
           position: 'relative'
@@ -194,18 +195,51 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggl
               src={thumbnailUrl}
               alt={image.name}
               style={{
-                maxWidth: '100%',
-                maxHeight: '100%',
-                objectFit: 'contain'
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover'
               }}
               onError={() => setImgError(true)}
             />
             <div
               style={{
                 position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                background: 'linear-gradient(transparent, rgba(0, 0, 0, 0.75))',
+                padding: '24px 12px 10px',
+                color: '#fff'
+              }}
+            >
+              <Tooltip title={image.name}>
+                <Text
+                  ellipsis
+                  style={{
+                    display: 'block',
+                    fontSize: '13px',
+                    marginBottom: '6px',
+                    minHeight: '20px',
+                    color: '#fff'
+                  }}
+                >
+                  {highlightedName}
+                </Text>
+              </Tooltip>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
+                {image.matchedWords.map((word, index) => (
+                  <Tag key={index} color="red" style={{ margin: 0, fontSize: '11px', lineHeight: '18px' }}>
+                    {word}
+                  </Tag>
+                ))}
+              </div>
+            </div>
+            <div
+              style={{
+                position: 'absolute',
                 bottom: '8px',
                 right: '8px',
-                background: 'rgba(0, 0, 0, 0.6)',
+                background: 'rgba(0, 0, 0, 0.5)',
                 color: '#fff',
                 padding: '4px 8px',
                 borderRadius: '4px',
@@ -223,28 +257,6 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggl
         ) : (
           <FileImageOutlined style={{ fontSize: '48px', color: '#ccc' }} />
         )}
-      </div>
-
-      <Tooltip title={image.name}>
-        <Text
-          ellipsis
-          style={{
-            display: 'block',
-            fontSize: '13px',
-            marginBottom: '8px',
-            minHeight: '20px'
-          }}
-        >
-          {highlightedName}
-        </Text>
-      </Tooltip>
-
-      <div>
-        {image.matchedWords.map((word, index) => (
-          <Tag key={index} color="red" style={{ margin: '2px' }}>
-            {word}
-          </Tag>
-        ))}
       </div>
 
       <style>{`
