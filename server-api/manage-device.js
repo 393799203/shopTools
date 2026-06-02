@@ -25,6 +25,38 @@ async function updateDeviceExpiry(deviceMac, expiresAt) {
   console.log(`   过期时间: ${data.data.expiresAtISO}`)
 }
 
+async function deleteDevice(deviceMac) {
+  const response = await fetch(`${API_BASE}/api/admin/device/${deviceMac}`, {
+    method: 'DELETE',
+    headers: {
+      'x-admin-secret': ADMIN_SECRET
+    }
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    
+    if (response.status === 404) {
+      console.error(`❌ 设备不存在: ${deviceMac}`)
+      process.exit(1)
+    }
+    
+    console.error(`❌ 删除失败 (${response.status}): ${errorText}`)
+    process.exit(1)
+  }
+
+  const data = await response.json()
+
+  if (!data.success) {
+    console.error(`❌ 失败: ${data.error}`)
+    process.exit(1)
+  }
+
+  console.log(`✅ 设备已删除!`)
+  console.log(`   MAC 地址: ${data.data.mac}`)
+  console.log(`   提示: ${data.data.message}`)
+}
+
 async function listDevices() {
   const response = await fetch(`${API_BASE}/api/admin/devices`, {
     headers: { 'x-admin-secret': ADMIN_SECRET }
@@ -66,6 +98,7 @@ function showHelp() {
 
 命令:
   update <MAC> <过期时间>     更新设备过期时间
+  delete <MAC>               删除设备（可重新激活）
   list                       列出所有设备
   help                       显示帮助信息
 
@@ -74,6 +107,9 @@ function showHelp() {
   <过期时间>                 ISO 格式日期 (如: 2026-06-02T09:50:00+08:00)
 
 示例:
+  # 删除设备（重新测试激活流程）
+  node manage-device.js delete 8c:85:90:b9:7b:bf
+
   # 更新设备过期时间到今天 09:50
   node manage-device.js update 8c:85:90:b9:7b:bf "2026-06-02T09:50:00+08:00"
 
@@ -99,6 +135,16 @@ async function main() {
         process.exit(1)
       }
       await updateDeviceExpiry(args[1], args[2])
+      break
+
+    case 'delete':
+    case 'del':
+    case 'remove':
+      if (args.length < 2) {
+        console.error('❌ 缺少参数: node manage-device.js delete <MAC>')
+        process.exit(1)
+      }
+      await deleteDevice(args[1])
       break
 
     case 'list':

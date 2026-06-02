@@ -655,6 +655,97 @@ app.post('/api/admin/update-device-expiry', verifyAdmin, async (req, res) => {
   }
 })
 
+app.delete('/api/admin/device/:mac', verifyAdmin, async (req, res) => {
+  try {
+    const { mac } = req.params
+
+    if (!mac || mac === 'unknown') {
+      return res.status(400).json({ success: false, error: 'MAC address required' })
+    }
+
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+
+      const deviceResult = await client.query(
+        'SELECT mac, created_at FROM devices WHERE mac = $1',
+        [mac]
+      )
+
+      if (deviceResult.rows.length === 0) {
+        await client.query('ROLLBACK')
+        return res.status(404).json({ success: false, error: 'Device not found' })
+      }
+
+      try {
+        await client.query(
+          'DELETE FROM device_license_history WHERE device_mac = $1',
+          [mac]
+        )
+        console.log(`[Admin] 已清理 device_license_history`)
+      } catch (e) {
+        console.log(`[Admin] device_license_history 清理失败:`, e.message)
+      }
+
+      try {
+        await client.query(
+          'DELETE FROM quota_usage_log WHERE device_mac = $1',
+          [mac]
+        )
+        console.log(`[Admin] 已清理 quota_usage_log`)
+      } catch (e) {
+        console.log(`[Admin] quota_usage_log 清理失败（可忽略）:`, e.message)
+      }
+
+      try {
+        await client.query(
+          'DELETE FROM used_nonces WHERE token IN (SELECT current_token FROM devices WHERE mac = $1)',
+          [mac]
+        )
+        console.log(`[Admin] 已清理 used_nonces`)
+      } catch (e) {
+        console.log(`[Admin] used_nonces 清理失败（可忽略）:`, e.message)
+      }
+
+      try {
+        await client.query(
+          'DELETE FROM quota_orders WHERE device_mac = $1',
+          [mac]
+        )
+        console.log(`[Admin] 已清理 quota_orders`)
+      } catch (e) {
+        console.log(`[Admin] quota_orders 清理失败（可忽略）:`, e.message)
+      }
+
+      await client.query(
+        'DELETE FROM devices WHERE mac = $1 RETURNING mac, created_at',
+        [mac]
+      )
+
+      await client.query('COMMIT')
+
+      const deletedDevice = deviceResult.rows[0]
+      console.log(`[Admin] Deleted device: MAC=${deletedDevice.mac}, createdAt=${deletedDevice.created_at}`)
+
+      res.json({
+        success: true,
+        data: {
+          mac: deletedDevice.mac,
+          message: '设备已删除，可以重新激活'
+        }
+      })
+    } catch (e) {
+      await client.query('ROLLBACK')
+      throw e
+    } finally {
+      client.release()
+    }
+  } catch (error) {
+    console.error('Delete device error:', error)
+    res.status(500).json({ success: false, error: `Failed to delete device: ${error.message}` })
+  }
+})
+
 app.post('/api/deduct-quota', verifySignature, async (req, res) => {
   try {
     const { imageCount, folderPath } = req.body
