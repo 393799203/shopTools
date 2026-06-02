@@ -1,21 +1,17 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, Modal, message } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
 import { activate } from '../services/auth'
 import { API_BASE } from '../services/api'
+import { getErrorMessage } from '../utils/errorHandler'
 import { useAuth } from '../contexts/AuthProvider'
 import LicenseKeyInput from './LicenseKeyInput'
 
 function Header() {
-  const { expiresAtStr, daysRemaining, recheck } = useAuth()
+  const { expiresAtStr, daysRemaining, planType, isSubscriptionExpired, quotaRemaining, quotaTotal, recheck } = useAuth()
   const [renewModalOpen, setRenewModalOpen] = useState(false)
   const [renewKey, setRenewKey] = useState('')
   const [renewLoading, setRenewLoading] = useState(false)
-
-  const handleRefresh = () => {
-    window.location.reload()
-  }
 
   const handleRenew = async () => {
     if (!renewKey.trim()) {
@@ -33,7 +29,8 @@ function Header() {
       // 重新验证并更新认证状态和到期日期（不刷新页面）
       await recheck()
     } catch (error: any) {
-      message.error(error.message || '延期失败')
+      const errorData = error?.message ? { error: error.message } : {}
+      message.error(getErrorMessage(errorData, undefined, '延期失败'))
     } finally {
       setRenewLoading(false)
     }
@@ -62,12 +59,51 @@ function Header() {
             background: 'rgba(88,166,255,0.15)'
           }}>敏感词删图</Link>
         </nav>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Button type="link" size="small" icon={<ReloadOutlined />} onClick={handleRefresh} style={{ color: '#8b949e', padding: '0 4px' }} />
-          {expiresAtStr && (
-            <span style={{ color: daysRemaining <= 7 && daysRemaining > 0 ? '#d29922' : '#8b949e', fontSize: '13px' }}>到期：{expiresAtStr}</span>
-          )}
-          <Button type="link" size="small" onClick={() => setRenewModalOpen(true)} style={{ color: '#8b949e' }}>续期</Button>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          
+          {/* 混合模式：同时显示订阅状态和额度信息 */}
+          <span style={{ 
+            fontSize: '13px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            {/* 订阅信息 */}
+            {expiresAtStr && (
+              <span style={{ 
+                color: isSubscriptionExpired ? '#f85149' : daysRemaining <= 7 && daysRemaining > 0 ? '#d29922' : '#e6edf3'
+              }}>
+                {isSubscriptionExpired ? '已过期' : `到期：${expiresAtStr}`}
+              </span>
+            )}
+            
+            {/* 分隔符（两者都有时显示） */}
+            {expiresAtStr && quotaRemaining !== null && (
+              <span style={{ color: '#484f58' }}>|</span>
+            )}
+            
+            {/* 额度信息 */}
+            {quotaRemaining !== null && (
+              <span style={{ 
+                color: quotaRemaining <= 0 ? '#f85149' : quotaRemaining <= 1000 ? '#d29922' : '#e6edf3'
+              }}>
+                {quotaRemaining <= 0 ? '额度用尽' : `${quotaRemaining?.toLocaleString()} / ${quotaTotal?.toLocaleString()}`}
+              </span>
+            )}
+          </span>
+          
+          {/* 续费/充值按钮 */}
+          <Button 
+            type="primary" 
+            size="small" 
+            onClick={() => setRenewModalOpen(true)} 
+            style={{ 
+              background: isSubscriptionExpired || (quotaRemaining !== null && quotaRemaining <= 0) ? '#da3633' : '#238636',
+              borderColor: isSubscriptionExpired || (quotaRemaining !== null && quotaRemaining <= 0) ? '#da3633' : '#238636'
+            }}
+          >
+            {isSubscriptionExpired || (quotaRemaining !== null && quotaRemaining <= 0) ? '续期/充值' : '续费'}
+          </Button>
         </div>
       </header>
       <Modal

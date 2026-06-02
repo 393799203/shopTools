@@ -8,11 +8,14 @@ export interface ActivationResponse {
 
 export interface DeviceStatusResponse {
   activated: boolean
-  expired?: boolean
+  isExpired?: boolean  // 订阅是否过期（独立于当前有效模式）
   token?: string
   secret?: string
-  expiresAt?: number | string
-  daysRemaining?: number
+  expiresAt?: number | string | null
+  daysRemaining?: number | null
+  planType?: 'subscription' | 'pay_per_use'
+  quotaRemaining?: number | null
+  quotaTotal?: number | null
   licenseHistory?: Array<{
     licenseKey: string
     durationDays: number
@@ -62,8 +65,8 @@ export async function activate(licenseKey: string, apiBase: string): Promise<Act
 }
 
 export type AuthResult = 
-  | { valid: true; token: string; secret: string; expiresAt: number }
-  | { valid: false; reason: 'NOT_ACTIVATED' | 'EXPIRED' | 'ERROR' }
+  | { valid: true; token: string; secret: string; expiresAt: number; planType: 'subscription' | 'pay_per_use'; isSubscriptionExpired?: boolean; quotaRemaining?: number | null; quotaTotal?: number | null }
+  | { valid: false; reason: 'NOT_ACTIVATED' | 'ERROR' }
 
 export async function verifyAuth(apiBase: string): Promise<AuthResult> {
   try {
@@ -88,20 +91,30 @@ export async function verifyAuth(apiBase: string): Promise<AuthResult> {
       return { valid: false, reason: 'NOT_ACTIVATED' }
     }
 
-    if (data.expired || !data.token || !data.secret || !data.expiresAt) {
-      console.log('[Auth] Subscription expired or invalid credentials')
-      return { valid: false, reason: 'EXPIRED' }
-    }
-
-    const expiresAtNum = typeof data.expiresAt === 'string' ? parseInt(data.expiresAt, 10) : data.expiresAt
+    // 无论哪种模式，只要 activated=true 就算有效（不跳转激活页）
+    // 服务端返回的 planType 是动态计算的 effectivePlanType（订阅优先 + 按量兜底）
+    // isExpired 表示订阅是否过期（独立于当前有效模式）
+    const isSubscriptionExpired = !!data.isExpired  // 直接使用 isExpired 字段
     
-    console.log('[Auth] Verification successful')
+    const expiresAtNum = typeof data.expiresAt === 'string' ? parseInt(data.expiresAt, 10) : (data.expiresAt || 0)
+    
+    console.log('[Auth] Verification successful (混合模式)', {
+      planType: data.planType,
+      isSubscriptionExpired,
+      quotaRemaining: data.quotaRemaining,
+      hasSubscription: data.planType === 'subscription',
+      hasQuota: data.planType === 'pay_per_use'
+    })
     
     return {
       valid: true,
-      token: data.token,
-      secret: data.secret,
-      expiresAt: expiresAtNum
+      token: data.token || '',
+      secret: data.secret || '',
+      expiresAt: expiresAtNum,
+      planType: data.planType || 'subscription',
+      isSubscriptionExpired,
+      quotaRemaining: data.quotaRemaining ?? null,
+      quotaTotal: data.quotaTotal ?? null
     }
   } catch (error) {
     console.error('[Auth] Verify auth error:', error)

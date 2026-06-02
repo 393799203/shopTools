@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Card, Typography, message } from 'antd'
 import { SafetyOutlined } from '@ant-design/icons'
 import { api } from '../services/api'
+import { getErrorMessage } from '../utils/errorHandler'
 import LicenseKeyInput from './LicenseKeyInput'
 
 const { Title, Text } = Typography
@@ -26,7 +27,8 @@ export default function ActivationPanel({ onActivated }: ActivationPanelProps) {
       message.success('激活成功！')
       onActivated()
     } catch (error: any) {
-      message.error(error.message || '激活失败，请检查 License Key 是否正确')
+      const errorData = error?.message ? { error: error.message } : {}
+      message.error(getErrorMessage(errorData, undefined, '激活失败，请检查 License Key 是否正确'))
     } finally {
       setLoading(false)
     }

@@ -91,20 +91,10 @@ function applySignatureToHeaders(headers, timestamp, nonce, signature) {
 }
 
 // ============================================
-// 🔐 后端认证中间件（统一验证设备状态 + 缓存优化）
+// 🔐 后端认证中间件（统一验证设备状态）
 // ============================================
-let authCache = null
-let authCacheTime = 0
-const AUTH_CACHE_TTL = 5 * 60 * 1000 // 5分钟缓存
-
 async function verifyDeviceAuth() {
   try {
-    // 检查缓存（5分钟内有效）
-    if (authCache && (Date.now() - authCacheTime) < AUTH_CACHE_TTL) {
-      console.log('[Auth] 使用缓存的认证结果')
-      return authCache
-    }
-    
     const mac = getRealMac()
     if (!mac || mac === 'unknown') {
       return { authorized: false, error: '无法获取设备MAC地址', statusCode: 500 }
@@ -112,6 +102,8 @@ async function verifyDeviceAuth() {
 
     const deviceStatusUrl = new URL(`${REMOTE_API_URL}/api/device-status`)
     deviceStatusUrl.searchParams.set('mac', mac)
+    
+    console.log(`[Auth] 🔄 实时查询设备状态`)
     
     const statusResponse = await fetch(deviceStatusUrl.toString())
     const statusData = await statusResponse.json()
@@ -124,34 +116,47 @@ async function verifyDeviceAuth() {
       return { authorized: false, error: '设备未激活，请先激活设备', statusCode: 403 }
     }
 
-    if (statusData.data.expired) {
-      return { authorized: false, error: '订阅已过期，请重新激活', statusCode: 403 }
+    // 混合模式：只要 activated=true 就允许通过
+    // - 订阅有效 → planType=subscription，不扣费
+    // - 订阅过期+有额度 → planType=pay_per_use，扣费
+    // - 都不可用 → 服务端会返回错误
+    const effectivePlanType = statusData.data.planType || 'subscription'
+    
+    const isExpired = !!statusData.data.isExpired
+    const quotaRemaining = statusData.data.quotaRemaining ?? null
+    
+    if (isExpired && effectivePlanType === 'subscription') {
+      return { authorized: false, error: '订阅已过期，请续期或充值', statusCode: 403 }
     }
+    
+    if (effectivePlanType === 'pay_per_use' && quotaRemaining !== null && quotaRemaining <= 0) {
+      return { authorized: false, error: '订阅已过期且配额用完，请续费或充值', statusCode: 403 }
+    }
+    
+    console.log(`[Auth] 混合模式验证通过: ${effectivePlanType}`, {
+      expired: isExpired,
+      quotaRemaining: statusData.data.quotaRemaining,
+      quotaTotal: statusData.data.quotaTotal,
+      expiresAt: statusData.data.expiresAt ? new Date(statusData.data.expiresAt * 1000).toLocaleString() : null
+    })
 
-    // 构建认证结果并缓存
+    // 构建认证结果（实时查询，不缓存）
     const result = { 
       authorized: true, 
       token: statusData.data.token,
-      secret: statusData.data.secret
+      secret: statusData.data.secret,
+      planType: effectivePlanType
     }
     
-    // 只缓存成功的认证结果（失败的不缓存）
-    authCache = result
-    authCacheTime = Date.now()
-    
-    console.log('[Auth] 认证成功，已缓存结果')
+    console.log('[Auth] ✅ 认证成功（实时查询）', {
+      effectivePlanType,
+      willDeductFee: effectivePlanType === 'pay_per_use' ? '是（按量扣费）' : '否（订阅模式）'
+    })
     return result
   } catch (error) {
     console.error('[Auth] 验证失败:', error.message)
     return { authorized: false, error: '验证服务不可用', statusCode: 503 }
   }
-}
-
-// 清除认证缓存（用于激活/续期后强制刷新）
-function clearAuthCache() {
-  authCache = null
-  authCacheTime = 0
-  console.log('[Auth] 认证缓存已清除')
 }
 
 async function requireAuth(req, res, next) {
@@ -170,31 +175,27 @@ async function requireAuth(req, res, next) {
   if (next) next()
 }
 
-async function proxyToRemote(req, res, options = {}) {
-  const { 
-    method = req.method, 
-    path = req.originalUrl,
-    onSuccess
-  } = options
+// ============================================
+// 🔐 带签名的请求函数（统一处理签名）
+// ============================================
+async function signedFetch(token, secret, method, remotePath, body = null, originalReq = null) {
+  const methodUpper = method.toUpperCase()
+  const bodyForSign = (methodUpper === 'POST' || methodUpper === 'PUT') ? body : undefined
+  const { timestamp, nonce, signature } = await generateSignature(secret, methodUpper, remotePath, bodyForSign)
+  
+  const signedHeaders = applySignatureToHeaders({
+    'Content-Type': 'application/json',
+    'X-Token': token,
+    ...(originalReq ? { 'X-Company-ID': getCompanyId(originalReq) } : {})
+  }, timestamp, nonce, signature)
 
-  try {
-    const response = await fetch(`${REMOTE_API_URL}${path}`, {
-      method,
-      headers: getForwardHeaders(req),
-      body: method !== 'GET' && method !== 'HEAD' ? JSON.stringify(req.body) : undefined
-    })
-    
-    const data = await response.json()
-    
-    if (onSuccess) {
-      await onSuccess(data, getCompanyId(req))
-    }
-    
-    return res.status(response.status).json(data)
-  } catch (error) {
-    console.error(`Proxy error [${method} ${path}]:`, error.message)
-    return res.status(500).json({ success: false, error: error.message })
-  }
+  console.log(`[Sign] ${methodUpper} ${remotePath} → 已签名`)
+  
+  return fetch(`${REMOTE_API_URL}${remotePath}`, {
+    method: methodUpper,
+    headers: signedHeaders,
+    body: bodyForSign ? JSON.stringify(bodyForSign) : undefined
+  })
 }
 
 // 缩略图目录
@@ -521,11 +522,6 @@ function createApiServer() {
       const data = await response.json()
       console.log('[Activate] 远程服务器返回:', JSON.stringify(data))
       
-      // 激活成功后清除认证缓存，强制下次请求重新验证
-      if (data.success) {
-        clearAuthCache()
-      }
-      
       res.status(response.status).json(data)
     } catch (error) {
       console.error('Activate proxy error:', error)
@@ -534,87 +530,29 @@ function createApiServer() {
   })
 
   // ============================================
-  // 🔐 需要认证的 API 接口（使用 authMiddleware 统一验证）
+  // 🔐 需要认证的 API 接口（使用 signedFetch 统一处理签名）
   // ============================================
   
-  // 敏感词相关接口（需要签名请求远程服务器）
+  // 敏感词相关接口
   apiApp.get('/api/words', requireAuth, async (req, res) => {
-    try {
-      const { token, secret } = req.deviceAuth
-      const wordsPath = '/api/words'
-      const { timestamp, nonce, signature } = await generateSignature(secret, 'GET', wordsPath)
-      
-      const headers = applySignatureToHeaders({
-        'Content-Type': 'application/json',
-        'X-Token': token,
-        'X-Company-ID': getCompanyId(req)
-      }, timestamp, nonce, signature)
-
-      console.log(`[Words] GET 使用后端凭证获取敏感词列表`)
-      const response = await fetch(`${REMOTE_API_URL}${wordsPath}`, {
-        method: 'GET',
-        headers
-      })
-      
-      const data = await response.json()
-      return res.status(response.status).json(data)
-    } catch (error) {
-      console.error('[Words] GET 失败:', error.message)
-      return res.status(500).json({ success: false, error: error.message })
-    }
+    const { token, secret } = req.deviceAuth
+    const response = await signedFetch(token, secret, 'GET', '/api/words', null, req)
+    const data = await response.json()
+    return res.status(response.status).json(data)
   })
-
+  
   apiApp.post('/api/words', requireAuth, async (req, res) => {
-    try {
-      const { token, secret } = req.deviceAuth
-      const wordsPath = '/api/words'
-      const { timestamp, nonce, signature } = await generateSignature(secret, 'POST', wordsPath, req.body)
-      
-      const headers = applySignatureToHeaders({
-        'Content-Type': 'application/json',
-        'X-Token': token,
-        'X-Company-ID': getCompanyId(req)
-      }, timestamp, nonce, signature)
-
-      console.log('[Words] POST 使用后端凭证添加敏感词')
-      const response = await fetch(`${REMOTE_API_URL}${wordsPath}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(req.body)
-      })
-      
-      const data = await response.json()
-      return res.status(response.status).json(data)
-    } catch (error) {
-      console.error('[Words] POST 失败:', error.message)
-      return res.status(500).json({ success: false, error: error.message })
-    }
+    const { token, secret } = req.deviceAuth
+    const response = await signedFetch(token, secret, 'POST', '/api/words', req.body, req)
+    const data = await response.json()
+    return res.status(response.status).json(data)
   })
-
+  
   apiApp.delete('/api/words/:id', requireAuth, async (req, res) => {
-    try {
-      const { token, secret } = req.deviceAuth
-      const wordsPath = `/api/words/${req.params.id}`
-      const { timestamp, nonce, signature } = await generateSignature(secret, 'DELETE', wordsPath)
-      
-      const headers = applySignatureToHeaders({
-        'Content-Type': 'application/json',
-        'X-Token': token,
-        'X-Company-ID': getCompanyId(req)
-      }, timestamp, nonce, signature)
-
-      console.log(`[Words] DELETE 使用后端凭证删除敏感词 ID: ${req.params.id}`)
-      const response = await fetch(`${REMOTE_API_URL}${wordsPath}`, {
-        method: 'DELETE',
-        headers
-      })
-      
-      const data = await response.json()
-      return res.status(response.status).json(data)
-    } catch (error) {
-      console.error('[Words] DELETE 失败:', error.message)
-      return res.status(500).json({ success: false, error: error.message })
-    }
+    const { token, secret } = req.deviceAuth
+    const response = await signedFetch(token, secret, 'DELETE', `/api/words/${req.params.id}`, null, req)
+    const data = await response.json()
+    return res.status(response.status).json(data)
   })
 
   // ============================================
@@ -631,32 +569,75 @@ function createApiServer() {
       }
 
       // 从中间件获取已验证的凭证
-      const { token, secret } = req.deviceAuth
+      const { token, secret, planType } = req.deviceAuth
       
-      // 用后端的凭证生成签名请求敏感词
+      console.log(`\n🎯 [Scan] 开始处理扫描请求 (混合模式)`)
+      console.log(`📂 扫描目录: ${folderPath}`)
+      console.log(`💳 当前有效模式: ${planType} (动态计算: 订阅优先 + 按量兜底)`)
+      
+      // ============================================
+      // 📊 第1步：快速统计文件夹中的图片数量
+      // ============================================
+      const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'])
+      let totalImageCount = 0
+      
+      function countImagesSync(dirPath) {
+        let entries
+        try {
+          entries = fs.readdirSync(dirPath, { withFileTypes: true })
+        } catch (error) {
+          return
+        }
+
+        for (const entry of entries) {
+          const fullPath = path.join(dirPath, entry.name)
+          try {
+            if (entry.isDirectory()) {
+              if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                countImagesSync(fullPath)
+              }
+            } else if (entry.isFile()) {
+              const ext = path.extname(entry.name).toLowerCase()
+              if (imageExtensions.has(ext)) {
+                totalImageCount++
+              }
+            }
+          } catch (error) {
+            // 忽略单个文件错误
+          }
+        }
+      }
+      
+      console.log(`🔢 [Scan] 统计图片数量中...`)
+      countImagesSync(folderPath)
+      console.log(`✅ [Scan] 统计完成: 发现 ${totalImageCount} 张图片`)
+      
+      // ============================================
+      // 🔍 第2步：获取敏感词列表（先于扣费，确保能扫描）
+      // ============================================
       let words = []
       try {
-        const wordsPath = '/api/words'
-        const { timestamp, nonce, signature } = await generateSignature(secret, 'GET', wordsPath)
-        
-        const headers = applySignatureToHeaders({
-          'Content-Type': 'application/json',
-          'X-Token': token
-        }, timestamp, nonce, signature)
-
         console.log(`[Scan] 使用后端凭证获取敏感词列表`)
-        const wordsResponse = await fetch(`${REMOTE_API_URL}/api/words`, {
-          method: 'GET',
-          headers
-        })
+        const wordsResponse = await signedFetch(token, secret, 'GET', '/api/words', null, req)
         
         if (!wordsResponse.ok) {
-          console.error(`[Scan] 获取敏感词失败: ${wordsResponse.status}`)
+          let wordsError = `获取敏感词失败 (${wordsResponse.status})`
+          try {
+            const errorData = await wordsResponse.json()
+            if (errorData.error) {
+              wordsError = errorData.error
+              console.error(`[Scan] 获取敏感词失败: ${wordsError}`)
+            }
+          } catch (e) {
+            console.error(`[Scan] 获取敏感词失败: ${wordsResponse.status}`)
+          }
+          
           return res.status(wordsResponse.status).json({
             success: false,
-            error: `获取敏感词失败 (${wordsResponse.status})`,
+            code: 'WORDS_ERROR',
+            error: wordsError,
             data: [],
-            stats: { totalFiles: 0, matchedFiles: 0, totalTime: Date.now() - startTime, algorithm: 'none' }
+            stats: { totalFiles: totalImageCount, matchedFiles: 0, totalTime: Date.now() - startTime, algorithm: 'none' }
           })
         }
         
@@ -670,23 +651,126 @@ function createApiServer() {
       }
 
       if (words.length === 0) {
-        console.error('⚠️ [Scan] 无法获取敏感词列表，请检查订阅状态')
+        console.error('⚠️ [Scan] 无法获取敏感词列表')
         return res.status(403).json({
           success: false,
-          error: '无法获取敏感词列表，请检查订阅是否过期',
+          code: 'WORDS_EMPTY',
+          error: '无法获取敏感词列表，请检查账户状态',
           data: [],
           stats: {
-            totalFiles: 0,
+            totalFiles: totalImageCount,
             matchedFiles: 0,
             totalTime: Date.now() - startTime,
             algorithm: 'none'
           }
         })
       }
+      
+      // ============================================
+      // 💰 第3步：调用远程服务器扣费（仅按量付费模式）
+      // 混合模式：planType 是服务端动态计算的 effectivePlanType
+      // - subscription: 订阅有效，不扣费
+      // - pay_per_use: 订阅过期或纯按量模式，扣费
+      // ============================================
+      let quotaInfo = null
+      
+      if (planType === 'pay_per_use') {
+        console.log(`\n💰 [Scan] 按量付费模式（可能是订阅过期的兜底）- 准备扣除额度:`)
+        console.log(`   图片数量: ${totalImageCount}`)
+        console.log(`   远程API: ${REMOTE_API_URL}/api/deduct-quota`)
+        
+        if (totalImageCount > 0) {
+          try {
+            console.log(`🔢 [Scan] 调用 deduct-quota 接口...`)
+            
+            const quotaResponse = await signedFetch(
+              token, 
+              secret, 
+              'POST', 
+              '/api/deduct-quota', 
+              { imageCount: totalImageCount, folderPath },
+              req
+            )
+          
+          console.log(`📡 [Scan] deduct-quota 响应状态: ${quotaResponse.status}`)
+          const quotaResponseText = await quotaResponse.text()
+          console.log(`📄 [Scan] 响应内容: ${quotaResponseText.substring(0, 300)}`)
+          
+          if (quotaResponse.ok) {
+            const quotaData = JSON.parse(quotaResponseText)
+            if (quotaData.success) {
+              quotaInfo = quotaData.data
+              const actualUsed = quotaInfo.quotaUsed || totalImageCount
+              console.log(`✅ [Scan] 额度扣除成功:`)
+              
+              if (actualUsed < totalImageCount) {
+                console.log(`   ⚠️ 额度不足，部分扣除:`)
+                console.log(`      请求: ${totalImageCount} 张`)
+                console.log(`      实际扣除: ${actualUsed} 张`)
+                console.log(`      剩余: ${quotaInfo.quotaRemaining} 张`)
+                console.log(`      将只扫描前 ${actualUsed} 张图片`)
+                
+                totalImageCount = actualUsed
+              } else {
+                console.log(`   使用: ${totalImageCount} 张`)
+                console.log(`   剩余: ${quotaInfo.quotaRemaining} 张`)
+                console.log(`   总计: ${quotaInfo.quotaTotal} 张`)
+              }
+            } else {
+              console.log(`ℹ️ [Scan] 服务器返回:`, quotaData.message || quotaData.error)
+            }
+          } else {
+            let errorData
+            try {
+              errorData = JSON.parse(quotaResponseText)
+            } catch (e) {
+              errorData = { error: quotaResponseText || '扣费请求失败' }
+            }
+            
+            console.log(`❌ [Scan] 扣费失败 (${quotaResponse.status}):`)
+            console.log(`   错误:`, errorData.error || '未知错误')
+            
+            return res.status(quotaResponse.status).json({
+              success: false,
+              code: errorData.code || 'QUOTA_ERROR',
+              error: `扣费失败: ${errorData.error || '服务器错误'}`,
+              data: [],
+              stats: {
+                totalFiles: totalImageCount,
+                matchedFiles: 0,
+                totalTime: Date.now() - startTime,
+                algorithm: 'none'
+              }
+            })
+          }
+        } catch (error) {
+          console.error('💥 [Scan] 扣费请求异常:', error.message)
+          console.error('   完整错误:', error)
+          
+          return res.status(503).json({
+            success: false,
+            code: 'NETWORK_ERROR',
+            error: `无法连接到服务器: ${error.message}`,
+            data: [],
+            stats: {
+              totalFiles: totalImageCount,
+              matchedFiles: 0,
+              totalTime: Date.now() - startTime,
+              algorithm: 'none'
+            }
+          })
+        }
+      } else {
+          console.log(`ℹ️ [Scan] 没有图片需要扫描，跳过扣费`)
+        }
+      } else {
+        console.log(`ℹ️ [Scan] 订阅制模式（订阅有效）- 无需扣费，直接扫描`)
+      }
+      
+      console.log(`\n✅ [Scan] 准备工作完成，开始执行扫描...`)
 
       console.log(`\n🎯 流式扫描模式启动`)
       console.log(`📊 敏感词数量: ${words.length}`)
-      console.log(`📂 扫描目录: ${folderPath}`)
 
       // 🎯 优化点 1: 复用 AC 自动机（避免重复构建）
       const currentWordsHash = words.join('|')
@@ -717,8 +801,9 @@ function createApiServer() {
       console.log('📤 [后端] 发送 start 事件...')
       res.write(JSON.stringify({ type: 'start', stats: { wordsCount: words.length, startTime } }) + '\n')
 
-      const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'])
-      let totalFilesScanned = 0
+      // ============================================
+      // 🚀 第4步：执行流式扫描
+      // ============================================
       let matchedCount = 0
       let batchImages = []
 
@@ -736,7 +821,10 @@ function createApiServer() {
       }
 
       // 同步递归遍历
+      let scannedCount = 0
       function scanDirectorySync(dirPath) {
+        if (scannedCount >= totalImageCount) return
+        
         let entries
         try {
           entries = fs.readdirSync(dirPath, { withFileTypes: true })
@@ -745,6 +833,8 @@ function createApiServer() {
         }
 
         for (const entry of entries) {
+          if (scannedCount >= totalImageCount) break
+          
           const fullPath = path.join(dirPath, entry.name)
 
           try {
@@ -756,8 +846,8 @@ function createApiServer() {
               const ext = path.extname(entry.name).toLowerCase()
 
               if (imageExtensions.has(ext)) {
-                totalFilesScanned++
-
+                scannedCount++
+                
                 const fileNameNoExt = path.parse(entry.name).name
                 const matchedWords = acAutomaton.search(fileNameNoExt)
 
@@ -789,35 +879,36 @@ function createApiServer() {
       // 发送最后一批数据
       flushBatch()
 
+      const actualScanned = scannedCount
       const scanTime = Date.now() - startTime
 
       console.log(`\n✅ 流式扫描完成:`)
-      console.log(`   总文件数: ${totalFilesScanned}`)
+      console.log(`   总文件数: ${actualScanned}`)
       console.log(`   匹配文件: ${matchedCount}`)
       console.log(`   扫描耗时: ${scanTime}ms`)
-      console.log(`   平均速度: ${(totalFilesScanned / (scanTime / 1000)).toFixed(0)} 文件/秒\n`)
+      if (actualScanned > 0) {
+        console.log(`   平均速度: ${(actualScanned / (scanTime / 1000)).toFixed(0)} 文件/秒\n`)
+      }
 
       // 发送完成标记和统计信息
       res.write(JSON.stringify({
         type: 'end',
         stats: {
-          totalFiles: totalFilesScanned,
+          totalFiles: actualScanned,
           matchedFiles: matchedCount,
           totalTime: scanTime,
           scanTime,
           thumbnailTime: 0,
           algorithm: 'aho-corasick',
           wordsCount: words.length,
-          asyncThumbnails: true
+          asyncThumbnails: true,
+          quotaUsed: quotaInfo ? quotaInfo.quotaUsed : actualScanned,
+          quotaRemaining: quotaInfo ? quotaInfo.quotaRemaining : null,
+          quotaTotal: quotaInfo ? quotaInfo.quotaTotal : null
         }
       }) + '\n')
 
       res.end()
-
-      // 后台异步生成缩略图（收集所有图片）
-      const allMatchedImages = []
-      // 注意：这里需要从已发送的数据中重建，或者改为在发送时同时保存
-      // 为了简单起见，我们在这里不生成，让前端按需请求即可
 
     } catch (error) {
       console.error('Error scanning folder:', error)
@@ -876,8 +967,8 @@ function createApiServer() {
     }
   })
 
-  // 大图预览 API
-  apiApp.get('/api/images/:id', requireAuth, async (req, res) => {
+  // 大图预览 API（无需认证，纯本地文件访问）
+  apiApp.get('/api/images/:id', async (req, res) => {
     try {
       const { id } = req.params
       const imagePath = req.query.path || req.body?.path
@@ -914,8 +1005,8 @@ function createApiServer() {
     }
   })
 
-  // 缩略图生成 API
-  apiApp.get('/api/thumbnail', requireAuth, async (req, res) => {
+  // 缩略图 API（无需认证，纯本地文件访问）
+  apiApp.get('/api/thumbnail', async (req, res) => {
     try {
       const { path: imagePath } = req.query
 

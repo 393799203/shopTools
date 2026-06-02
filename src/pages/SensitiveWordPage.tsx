@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { message, Statistic, Row, Col, Card as AntCard, Tag, Button } from 'antd'
+import { message, Statistic, Row, Col, Card as AntCard, Tag, Button, Alert } from 'antd'
 import {
   ClockCircleOutlined,
   FileImageOutlined,
@@ -11,6 +11,8 @@ import SensitiveSidebar from '../components/SensitiveSidebar'
 import ImageGrid from '../components/ImageGrid'
 import Toolbar from '../components/Toolbar'
 import { api } from '../services/api'
+import { useAuth } from '../contexts/AuthProvider'
+import { getErrorMessage, handleApiError } from '../utils/errorHandler'
 import { MatchedImage } from '../types'
 
 interface ScanStats {
@@ -24,6 +26,7 @@ interface ScanStats {
 }
 
 function SensitiveWordPage() {
+  const { recheck, planType, isSubscriptionExpired, quotaRemaining, authStatus, refreshVersion } = useAuth()
   const [images, setImages] = useState<MatchedImage[]>([])
 
   // 使用 ref 追踪最新的 images，避免闭包陷阱
@@ -127,8 +130,11 @@ function SensitiveWordPage() {
   const [wordsLoading, setWordsLoading] = useState(true)
 
   useEffect(() => {
-    loadWords()
-  }, [])
+    if (authStatus === 'checking') return
+    if (authStatus === 'activated') {
+      loadWords()
+    }
+  }, [authStatus, refreshVersion])
 
   const loadWords = async () => {
     setWordsLoading(true)
@@ -139,7 +145,6 @@ function SensitiveWordPage() {
       }
     } catch (error: any) {
       setWords([])
-      message.error(error?.message === 'expired' ? '订阅已过期，请重新激活' : '加载敏感词失败')
     } finally {
       setWordsLoading(false)
     }
@@ -184,7 +189,7 @@ function SensitiveWordPage() {
       }
     } catch (error) {
       setWords([])
-      message.error('刷新失败')
+      // 错误已由 handleApiError 统一处理，这里不需要重复提示
     } finally {
       setWordsLoading(false)
     }
@@ -243,6 +248,10 @@ function SensitiveWordPage() {
           setLoading(false)
           setCurrentFolder(folderPath)
           setStats(event.stats)
+          
+          // 刷新额度显示（扣费后更新右上角）
+          recheck()
+          
           requestAnimationFrame(() => {
             const finalRenderEnd = performance.now()
             const totalTime = (finalRenderEnd - scanStartTime).toFixed(0)
@@ -278,14 +287,6 @@ function SensitiveWordPage() {
 
     } catch (error: any) {
       console.error('❌ [页面] 扫描失败:', error)
-      
-      // 显示服务端返回的具体错误信息
-      const errorMessage = error?.message || '扫描失败'
-      if (errorMessage.includes('过期') || errorMessage.includes('激活') || errorMessage.includes('权限')) {
-        message.warning(errorMessage)
-      } else {
-        message.error(errorMessage)
-      }
       
       setLoading(false)
     }
@@ -557,6 +558,18 @@ function SensitiveWordPage() {
           loading={loading}
           hasFolder={!!currentFolder}
         />
+        
+        {(planType === 'pay_per_use' && quotaRemaining !== null && quotaRemaining <= 0) || (planType === 'subscription' && isSubscriptionExpired) ? (
+          <Alert
+            message="订阅已过期且配额用完"
+            description="您的订阅已过期或配额已用尽，请点击右上角「续期/充值」按钮继续使用"
+            type="warning"
+            showIcon
+            closable
+            style={{ margin: '8px 16px 0' }}
+          />
+        ) : null}
+
         <div ref={gridRef} style={{ flex: 1, overflow: 'auto', padding: '16px', position: 'relative' }}>
           <PerformanceStats />
           <ImageGrid

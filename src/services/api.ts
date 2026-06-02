@@ -1,4 +1,4 @@
-import { notifyAuthFail } from './authEvents'
+import { handleApiError, getErrorMessage } from '../utils/errorHandler'
 
 const API_BASE = 'http://localhost:3001/api'
 
@@ -48,15 +48,8 @@ export const api = {
       })
       
       if (!response.ok) {
-        // 403 Forbidden 是明确的权限错误，直接显示服务端错误信息
-        if (response.status === 403) {
-          const errorData = await response.json().catch(() => ({ error: '权限不足' }))
-          throw new Error(errorData.error || '权限不足')
-        }
-        
-        // 其他错误
         const errorData = await response.json().catch(() => ({ error: '请求失败' }))
-        throw new Error(errorData.error || '请求失败')
+        handleApiError(errorData, response.status)
       }
     } catch (error: any) {
       throw error
@@ -135,15 +128,13 @@ async function handleResponse(res: Response, shouldNotifyAuthFail = true): Promi
     return res.json()
   }
   
-  // 处理错误响应
   const errorData = await res.json().catch(() => ({ error: '请求失败' }))
   
-  // 根据状态码决定是否通知认证失败（数据加载类接口通知，操作类接口不通知）
-  if (shouldNotifyAuthFail && (res.status === 401 || res.status === 403)) {
-    notifyAuthFail('UNAUTHORIZED')
+  if (shouldNotifyAuthFail) {
+    handleApiError(errorData, res.status)
+  } else {
+    throw new Error(getErrorMessage(errorData, res.status))
   }
-  
-  throw new Error(errorData.error || `请求失败 (${res.status})`)
 }
 
 export { API_BASE }

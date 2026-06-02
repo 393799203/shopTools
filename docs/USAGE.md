@@ -27,6 +27,9 @@ node server-api/generate-license.js gen 3 30
 # 生成永久激活码
 node server-api/generate-license.js gen-permanent 2
 
+# 生成1个配额10000的激活码
+node server-api/generate-license.js gen-quota 1 10000
+
 # 查看所有激活码状态
 node server-api/generate-license.js list
 
