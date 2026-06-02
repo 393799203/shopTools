@@ -978,6 +978,11 @@ function createWindow() {
     const staticApp = express()
     staticApp.use(express.static(distPath))
     
+    // SPA 路由回退：所有未匹配的路由都返回 index.html
+    staticApp.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'))
+    })
+    
     staticServer = staticApp.listen(5173, () => {
       console.log('Static file server started on port 5173')
       mainWindow.loadURL('http://localhost:5173')

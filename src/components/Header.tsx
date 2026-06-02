@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Button, Modal, message } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { activate } from '../services/auth'
@@ -9,13 +9,12 @@ import LicenseKeyInput from './LicenseKeyInput'
 
 function Header() {
   const { expiresAtStr, daysRemaining, recheck } = useAuth()
-  const navigate = useNavigate()
   const [renewModalOpen, setRenewModalOpen] = useState(false)
   const [renewKey, setRenewKey] = useState('')
   const [renewLoading, setRenewLoading] = useState(false)
 
   const handleRefresh = () => {
-    navigate(0)
+    window.location.reload()
   }
 
   const handleRenew = async () => {
