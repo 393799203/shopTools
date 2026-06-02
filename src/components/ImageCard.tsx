@@ -161,11 +161,14 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggl
       hoverable
       style={{
         height: '100%',
-        border: selected ? '2px solid #1890ff' : '1px solid #f0f0f0',
+        border: 'none',
         position: 'relative',
         overflow: 'hidden',
         padding: 0,
-        aspectRatio: '3 / 4'
+        aspectRatio: '3 / 4',
+        ...(selected ? {
+          boxShadow: 'inset 0 0 0 3px #1890ff'
+        } : {})
       }}
       styles={{ body: { padding: 0, height: '100%', position: 'relative' } }}
       onClick={() => onToggleSelect(image.id)}
