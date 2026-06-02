@@ -497,7 +497,6 @@ function SensitiveWordPage() {
             <span>
               <ThunderboltOutlined style={{ color: '#52c41a', marginRight: 6 }} />
               <strong style={{ fontSize: '13px' }}>性能统计</strong>
-              <Tag color="green" style={{ marginLeft: 8, fontSize: '11px', padding: '0 6px', lineHeight: '18px' }}>{stats.algorithm}</Tag>
             </span>
             <span>
               <Tag color="blue" style={{ fontSize: '11px', padding: '0 6px', lineHeight: '18px' }}>敏感词: {stats.wordsCount} 个</Tag>
