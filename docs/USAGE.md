@@ -1,4 +1,4 @@
-# ImgGuard 快速使用指南
+# ShopTools 快速使用指南
 
 ## 🚀 三条命令搞定一切
 
@@ -31,7 +31,7 @@ node server-api/generate-license.js gen-permanent 2
 node server-api/generate-license.js list
 
 # 重置激活码（让用户可重新激活）
-node server-api/generate-license.js reset ImgGuard-XXXX-XXXX-XXXX-XXXX
+node server-api/generate-license.js reset ShopTools-XXXX-XXXX-XXXX-XXXX
 ```
 
 ### 3️⃣ 打包客户端
@@ -62,9 +62,50 @@ VITE_COMPANY_ID=company_b npm run build:win
 | **生成永久key** | `node server-api/generate-license.js gen-permanent 2` |
 | **查看所有key** | `node server-api/generate-license.js list` |
 | **重置key** | `node server-api/generate-license.js reset <KEY>` |
+| **更新设备过期时间** | `node server-api/manage-device.js update <MAC> <时间>` |
 | **打包Mac** | `npm run build:mac` |
 | **打包Win** | `npm run build:win` |
 | **查看日志** | `ssh root@8.217.249.31 "docker logs -f picfilter-api"` |
+
+---
+
+## 🔧 设备管理（Admin）
+
+### 更新设备过期时间
+
+用于测试过期场景或手动调整用户订阅时间。
+
+```bash
+# 基本用法
+node server-api/manage-device.js update <MAC地址> <ISO格式时间>
+
+# 示例：设置过期时间为今天 09:50
+node server-api/manage-device.js update 8c:85:90:b9:7b:bf "2026-06-02T09:50:00+08:00"
+
+# 设置为已过期（昨天）
+node server-api/manage-device.js update 8c:85:90:b9:7b:bf "$(date -v-1d '+%Y-%m-%dT%H:%M:%S+08:00')"
+
+# 延长 7 天
+node server-api/manage-device.js update 8c:85:90:b9:7b:bf "$(date -v+7d '+%Y-%m-%dT%H:%M:%S+08:00')"
+
+# 延长 30 天
+node server-api/manage-device.js update 8c:85:90:b9:7b:bf "$(date -v+30d '+%Y-%m-%dT%H:%M:%S+08:00')"
+```
+
+### 查看帮助
+
+```bash
+node server-api/manage-device.js help
+```
+
+### API 接口（供程序调用）
+
+```bash
+curl -X POST http://8.217.249.31:3001/api/admin/update-device-expiry \
+  -H "Content-Type: application/json" \
+  -H "x-admin-secret: ShopToolsAdmin2024Secure!" \
+  -d '{"deviceMac": "8c:85:90:b9:7b:bf", "expiresAt": "2026-06-02T09:50:00+08:00"}'
+```
 
 ---
 
@@ -109,4 +150,4 @@ ssh root@8.217.249.31 "docker logs -f picfilter-api"
 
 ---
 
-**最后更新：** 2026-05-31
+**最后更新：** 2026-06-02

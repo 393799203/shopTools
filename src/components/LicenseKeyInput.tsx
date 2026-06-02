@@ -1,7 +1,7 @@
 import { Input } from 'antd'
 
 const formatLicenseKey = (value: string): string => {
-  const withoutPrefix = value.replace(/^ImgGuard[-\s]*/i, '')
+  const withoutPrefix = value.replace(/^ShopTools[-\s]*/i, '')
   const cleaned = withoutPrefix.replace(/[^A-Za-z0-9]/g, '')
   if (!cleaned) return ''
   let formatted = ''
@@ -48,7 +48,7 @@ export default function LicenseKeyInput({
         height,
         display: 'flex',
         alignItems: 'center'
-      }}>ImgGuard</span>
+      }}>ShopTools</span>
       <Input
         placeholder={placeholder}
         value={value}

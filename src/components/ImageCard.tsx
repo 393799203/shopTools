@@ -171,7 +171,7 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggl
       onClick={() => onToggleSelect(image.id)}
     >
       <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 10 }}>
-        <Checkbox checked={selected} onClick={e => e.stopPropagation()} style={{ transition: 'none' }} />
+        <Checkbox checked={selected} onClick={e => { e.stopPropagation(); onToggleSelect(image.id) }} style={{ transition: 'none' }} />
       </div>
 
       <div
@@ -212,7 +212,7 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggl
                 color: '#fff'
               }}
             >
-              <Tooltip title={image.name}>
+              <Tooltip title={highlightedName}>
                 <Text
                   ellipsis
                   style={{
@@ -223,7 +223,7 @@ const ImageCardComponent: React.FC<ImageCardProps> = ({ image, selected, onToggl
                     color: '#fff'
                   }}
                 >
-                  {highlightedName}
+                  {fileName}
                 </Text>
               </Tooltip>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>

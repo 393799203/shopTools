@@ -21,7 +21,7 @@ export default function ActivationPanel({ onActivated }: ActivationPanelProps) {
     }
     setLoading(true)
     try {
-      const fullKey = 'ImgGuard-' + licenseKey
+      const fullKey = 'ShopTools-' + licenseKey
       await api.activate(fullKey.trim())
       message.success('激活成功！')
       onActivated()

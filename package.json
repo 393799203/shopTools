@@ -1,5 +1,5 @@
 {
-  "name": "imgguard",
+  "name": "shoptools",
   "version": "2.0.0",
   "description": "电商图片敏感词过滤客户端",
   "main": "electron/dev-main.cjs",

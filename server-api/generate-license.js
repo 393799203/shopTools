@@ -13,7 +13,7 @@ function generateSegment(length = 4) {
 
 function generateLicenseKey() {
   const segments = [
-    'ImgGuard',
+    'ShopTools',
     generateSegment(4),
     generateSegment(4),
     generateSegment(4),
@@ -49,7 +49,7 @@ async function main() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Admin-Secret': process.env.ADMIN_SECRET || 'ImgGuardAdmin2024Secure!'
+            'X-Admin-Secret': process.env.ADMIN_SECRET || 'ShopToolsAdmin2024Secure!'
           },
           body: JSON.stringify({
           licenseKey: key,
@@ -78,7 +78,7 @@ async function main() {
     try {
       const res = await fetch(`${apiBase}/admin/licenses`, {
         headers: {
-          'X-Admin-Secret': process.env.ADMIN_SECRET || 'ImgGuardAdmin2024Secure!'
+          'X-Admin-Secret': process.env.ADMIN_SECRET || 'ShopToolsAdmin2024Secure!'
         }
       })
       if (res.ok) {
@@ -114,7 +114,7 @@ async function main() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           licenseKey,
-          adminSecret: process.env.ADMIN_SECRET || 'ImgGuardAdmin2024Secure!'
+          adminSecret: process.env.ADMIN_SECRET || 'ShopToolsAdmin2024Secure!'
         })
       })
 
@@ -130,7 +130,7 @@ async function main() {
     }
   } else {
     console.log(`
-ImgGuard License Key Generator (HTTP API Mode)
+ShopTools License Key Generator (HTTP API Mode)
 ==============================================
 
 Usage:

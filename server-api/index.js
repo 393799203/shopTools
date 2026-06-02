@@ -124,7 +124,7 @@ app.get('/health', (req, res) => {
   res.json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } })
 })
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET || 'ImgGuardAdmin2024Secure!'
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'ShopToolsAdmin2024Secure!'
 
 function verifyAdmin(req, res, next) {
   const secret = req.headers['x-admin-secret']
@@ -138,7 +138,7 @@ app.post('/admin/license', verifyAdmin, async (req, res) => {
   try {
     const { licenseKey, durationDays } = req.body
 
-    if (!licenseKey || !licenseKey.startsWith('ImgGuard-')) {
+    if (!licenseKey || !licenseKey.startsWith('ShopTools-')) {
       return res.status(400).json({ success: false, error: 'Invalid license key format' })
     }
 
@@ -255,7 +255,7 @@ app.post('/api/activate', async (req, res) => {
       currentToken: currentToken?.substring(0, 20) + '...'
     })
 
-    if (!licenseKey || !licenseKey.startsWith('ImgGuard-')) {
+    if (!licenseKey || !licenseKey.startsWith('ShopTools-')) {
       return res.status(400).json({ success: false, error: 'Invalid license key format' })
     }
 
@@ -425,6 +425,40 @@ app.post('/api/activate', async (req, res) => {
   }
 })
 
+app.post('/api/admin/update-device-expiry', verifyAdmin, async (req, res) => {
+  try {
+    const { deviceMac, expiresAt } = req.body
+
+    if (!deviceMac || !expiresAt) {
+      return res.status(400).json({ success: false, error: 'deviceMac and expiresAt required' })
+    }
+
+    const result = await pool.query(
+      'UPDATE devices SET expires_at = $1, updated_at = NOW() WHERE mac = $2 RETURNING mac, expires_at',
+      [new Date(expiresAt).getTime() / 1000, deviceMac]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Device not found' })
+    }
+
+    const device = result.rows[0]
+    console.log(`[Admin] Updated device expiry: MAC=${device.mac}, newExpiresAt=${new Date(device.expires_at * 1000).toISOString()}`)
+
+    res.json({
+      success: true,
+      data: {
+        mac: device.mac,
+        expiresAt: device.expires_at,
+        expiresAtISO: new Date(device.expires_at * 1000).toISOString()
+      }
+    })
+  } catch (error) {
+    console.error('Update device expiry error:', error)
+    res.status(500).json({ success: false, error: 'Failed to update device expiry' })
+  }
+})
+
 app.post('/api/admin/reset-license', verifyAdmin, async (req, res) => {
   try {
     const { licenseKey } = req.body
@@ -562,5 +596,5 @@ app.delete('/api/images', verifySignature, async (req, res) => {
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`ImgGuard API server running on port ${PORT}`)
+  console.log(`ShopTools API server running on port ${PORT}`)
 })

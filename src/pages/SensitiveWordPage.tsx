@@ -137,8 +137,9 @@ function SensitiveWordPage() {
       if (result.success) {
         setWords(result.data)
       }
-    } catch (error) {
-      message.error('加载敏感词失败')
+    } catch (error: any) {
+      setWords([])
+      message.error(error?.message === 'expired' ? '订阅已过期，请重新激活' : '加载敏感词失败')
     } finally {
       setWordsLoading(false)
     }
@@ -182,6 +183,7 @@ function SensitiveWordPage() {
         message.success(`已刷新，共 ${result.data.length} 个敏感词`)
       }
     } catch (error) {
+      setWords([])
       message.error('刷新失败')
     } finally {
       setWordsLoading(false)
@@ -251,17 +253,22 @@ function SensitiveWordPage() {
       })
 
       // 最终结果（兼容非流式情况）
-      if (result.success && Array.isArray(result.data) && result.data.length > 0 && imagesRef.current.length === 0) {
-        console.log('📊 [页面] 使用最终结果:', result.data.length, '张')
-        imagesRef.current = result.data
-        setImages(result.data)
-        const rescanIds = new Set(result.data.map(img => img.id))
-        setTargetSelectedIds(rescanIds)
-        setDisplayedSelectedIds(rescanIds)
+      if (result.success && imagesRef.current.length === 0) {
+        console.log('📊 [页面] 使用最终结果:', result.data?.length || 0, '张')
+        if (Array.isArray(result.data) && result.data.length > 0) {
+          imagesRef.current = result.data
+          setImages(result.data)
+          const rescanIds = new Set(result.data.map(img => img.id))
+          setTargetSelectedIds(rescanIds)
+          setDisplayedSelectedIds(rescanIds)
+          message.success(`找到 ${result.data.length} 张匹配的图片`)
+        } else {
+          setImages([])
+          message.info('未找到匹配的图片')
+        }
         setLoading(false)
         setCurrentFolder(folderPath)
         setStats(result.stats)
-        message.success(`找到 ${result.data.length} 张匹配的图片`)
       }
 
       const totalImages = imagesRef.current.length
@@ -269,9 +276,17 @@ function SensitiveWordPage() {
         message.info('未找到匹配的图片')
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ [页面] 扫描失败:', error)
-      message.error('扫描失败')
+      
+      // 显示服务端返回的具体错误信息
+      const errorMessage = error?.message || '扫描失败'
+      if (errorMessage.includes('过期') || errorMessage.includes('激活') || errorMessage.includes('权限')) {
+        message.warning(errorMessage)
+      } else {
+        message.error(errorMessage)
+      }
+      
       setLoading(false)
     }
   }

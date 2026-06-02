@@ -1,16 +1,22 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Button, Modal, message } from 'antd'
-import { activate, getStoredCredentials } from '../services/auth'
+import { ReloadOutlined } from '@ant-design/icons'
+import { activate } from '../services/auth'
 import { API_BASE } from '../services/api'
 import { useAuth } from '../contexts/AuthProvider'
 import LicenseKeyInput from './LicenseKeyInput'
 
 function Header() {
-  const { expiresAtStr, daysRemaining } = useAuth()
+  const { expiresAtStr, daysRemaining, recheck } = useAuth()
+  const navigate = useNavigate()
   const [renewModalOpen, setRenewModalOpen] = useState(false)
   const [renewKey, setRenewKey] = useState('')
   const [renewLoading, setRenewLoading] = useState(false)
+
+  const handleRefresh = () => {
+    navigate(0)
+  }
 
   const handleRenew = async () => {
     if (!renewKey.trim()) {
@@ -19,13 +25,14 @@ function Header() {
     }
     setRenewLoading(true)
     try {
-      const creds = await getStoredCredentials()
-      const fullKey = 'ImgGuard-' + renewKey
-      await activate(fullKey, API_BASE, creds?.token, creds?.expiresAt)
+      const fullKey = 'ShopTools-' + renewKey
+      // 后端会自动获取当前凭证，前端只需传 licenseKey
+      await activate(fullKey, API_BASE)
       message.success('延期成功！')
       setRenewModalOpen(false)
       setRenewKey('')
-      window.location.reload()
+      // 重新验证并更新认证状态和到期日期（不刷新页面）
+      await recheck()
     } catch (error: any) {
       message.error(error.message || '延期失败')
     } finally {
@@ -57,12 +64,11 @@ function Header() {
           }}>敏感词删图</Link>
         </nav>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Button type="link" size="small" icon={<ReloadOutlined />} onClick={handleRefresh} style={{ color: '#8b949e', padding: '0 4px' }} />
           {expiresAtStr && (
             <span style={{ color: daysRemaining <= 7 && daysRemaining > 0 ? '#d29922' : '#8b949e', fontSize: '13px' }}>到期：{expiresAtStr}</span>
           )}
-          {daysRemaining > 0 && daysRemaining <= 7 && (
-            <Button type="link" size="small" onClick={() => setRenewModalOpen(true)} style={{ color: '#d29922' }}>续期</Button>
-          )}
+          <Button type="link" size="small" onClick={() => setRenewModalOpen(true)} style={{ color: '#8b949e' }}>续期</Button>
         </div>
       </header>
       <Modal

@@ -1,7 +1,7 @@
 {
   "name": "picfilter-api",
   "version": "1.0.0",
-  "description": "ImgGuard API Server",
+  "description": "ShopTools API Server",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

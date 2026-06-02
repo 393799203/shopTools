@@ -38,7 +38,6 @@ if (app.isPackaged) {
   }
 }
 
-let localWords = new Map()
 let syncPromise = null
 
 // ============================================
@@ -56,29 +55,126 @@ function getForwardHeaders(req) {
   return headers
 }
 
-function updateLocalCache(words, companyId = 'default') {
-  if (Array.isArray(words)) {
-    localWords.clear()
-    words.forEach(word => localWords.set(word.id, word))
-  } else if (words && words.id) {
-    localWords.set(words.id, words)
-  }
-  saveLocalWords(companyId)
-  acAutomaton = null
+// ============================================
+// 🔐 签名工具函数（后端版本）
+// ============================================
+function generateNonce() {
+  return crypto.randomBytes(16).toString('hex')
 }
 
-function removeFromCache(id, companyId = 'default') {
-  localWords.delete(id)
-  saveLocalWords(companyId)
-  acAutomaton = null
+async function sha256(message) {
+  return crypto.createHash('sha256').update(message).digest('hex')
+}
+
+async function hmacSha256(key, message) {
+  return crypto.createHmac('sha256', key).update(message).digest('hex')
+}
+
+async function generateSignature(secret, method, path, body = null) {
+  const timestamp = Math.floor(Date.now() / 1000)
+  const nonce = generateNonce()
+  const bodyHash = body ? await sha256(JSON.stringify(body)) : ''
+
+  const signMessage = `${timestamp}:${nonce}:${method}:${path}:${bodyHash}`
+  const signature = await hmacSha256(secret, signMessage)
+
+  return { timestamp, nonce, signature }
+}
+
+function applySignatureToHeaders(headers, timestamp, nonce, signature) {
+  return {
+    ...headers,
+    'X-Timestamp': timestamp.toString(),
+    'X-Nonce': nonce,
+    'X-Signature': signature
+  }
+}
+
+// ============================================
+// 🔐 后端认证中间件（统一验证设备状态 + 缓存优化）
+// ============================================
+let authCache = null
+let authCacheTime = 0
+const AUTH_CACHE_TTL = 5 * 60 * 1000 // 5分钟缓存
+
+async function verifyDeviceAuth() {
+  try {
+    // 检查缓存（5分钟内有效）
+    if (authCache && (Date.now() - authCacheTime) < AUTH_CACHE_TTL) {
+      console.log('[Auth] 使用缓存的认证结果')
+      return authCache
+    }
+    
+    const mac = getRealMac()
+    if (!mac || mac === 'unknown') {
+      return { authorized: false, error: '无法获取设备MAC地址', statusCode: 500 }
+    }
+
+    const deviceStatusUrl = new URL(`${REMOTE_API_URL}/api/device-status`)
+    deviceStatusUrl.searchParams.set('mac', mac)
+    
+    const statusResponse = await fetch(deviceStatusUrl.toString())
+    const statusData = await statusResponse.json()
+
+    if (!statusData.success || !statusData.data) {
+      return { authorized: false, error: '设备验证失败', statusCode: 401 }
+    }
+
+    if (!statusData.data.activated) {
+      return { authorized: false, error: '设备未激活，请先激活设备', statusCode: 403 }
+    }
+
+    if (statusData.data.expired) {
+      return { authorized: false, error: '订阅已过期，请重新激活', statusCode: 403 }
+    }
+
+    // 构建认证结果并缓存
+    const result = { 
+      authorized: true, 
+      token: statusData.data.token,
+      secret: statusData.data.secret
+    }
+    
+    // 只缓存成功的认证结果（失败的不缓存）
+    authCache = result
+    authCacheTime = Date.now()
+    
+    console.log('[Auth] 认证成功，已缓存结果')
+    return result
+  } catch (error) {
+    console.error('[Auth] 验证失败:', error.message)
+    return { authorized: false, error: '验证服务不可用', statusCode: 503 }
+  }
+}
+
+// 清除认证缓存（用于激活/续期后强制刷新）
+function clearAuthCache() {
+  authCache = null
+  authCacheTime = 0
+  console.log('[Auth] 认证缓存已清除')
+}
+
+async function requireAuth(req, res, next) {
+  const authResult = await verifyDeviceAuth()
+  
+  if (!authResult.authorized) {
+    return res.status(authResult.statusCode).json({ 
+      success: false, 
+      error: authResult.error 
+    })
+  }
+  
+  // 将凭证挂载到 req 上，供后续使用
+  req.deviceAuth = authResult
+  
+  if (next) next()
 }
 
 async function proxyToRemote(req, res, options = {}) {
   const { 
     method = req.method, 
     path = req.originalUrl,
-    onSuccess,
-    fallbackToLocal = false 
+    onSuccess
   } = options
 
   try {
@@ -94,64 +190,15 @@ async function proxyToRemote(req, res, options = {}) {
       await onSuccess(data, getCompanyId(req))
     }
     
-    if (fallbackToLocal && !data.success) {
-      return res.json({
-        success: true,
-        data: [...localWords.values()]
-      })
-    }
-    
     return res.status(response.status).json(data)
   } catch (error) {
     console.error(`Proxy error [${method} ${path}]:`, error.message)
-    
-    if (fallbackToLocal) {
-      return res.json({
-        success: true,
-        data: [...localWords.values()]
-      })
-    }
-    
     return res.status(500).json({ success: false, error: error.message })
   }
 }
 
 // 缩略图目录
 const thumbnailDir = path.join(userDataPath, '.thumbnails')
-
-// 多公司缓存
-const companyWordsFiles = new Map()
-
-function getWordsFilePath(companyId) {
-  if (!companyWordsFiles.has(companyId)) {
-    companyWordsFiles.set(companyId, path.join(userDataPath, `sensitive-words-${companyId}.json`))
-  }
-  return companyWordsFiles.get(companyId)
-}
-
-// 加载本地敏感词
-function loadLocalWords(companyId = 'default') {
-  try {
-    const filePath = getWordsFilePath(companyId)
-    if (fs.existsSync(filePath)) {
-      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
-      localWords = new Map(data.map(item => [item.id, item]))
-      console.log(`✅ Loaded ${localWords.size} words for company: ${companyId}`)
-    }
-  } catch (error) {
-    console.error('Failed to load local words:', error)
-  }
-}
-
-// 保存本地敏感词
-function saveLocalWords(companyId = 'default') {
-  try {
-    const filePath = getWordsFilePath(companyId)
-    fs.writeFileSync(filePath, JSON.stringify([...localWords.values()]))
-  } catch (error) {
-    console.error('Failed to save local words:', error)
-  }
-}
 
 // ============================================
 // 🎯 核心优化 1: Aho-Corasick 多模式匹配算法
@@ -372,6 +419,22 @@ async function generateSingleThumbnail(imagePath) {
   }
 }
 
+const VIRTUAL_MAC_PREFIXES = ['ac:de:48:', '00:ff:', '02:42:']
+
+function getRealMac() {
+  const interfaces = os.networkInterfaces()
+  for (const [name, nets] of Object.entries(interfaces)) {
+    if (name.startsWith('veth') || name.startsWith('docker') || name.startsWith('br-') || name.startsWith('virbr')) continue
+    for (const net of nets) {
+      if (net.mac && net.mac !== '00:00:00:00:00:00' && !net.internal) {
+        if (VIRTUAL_MAC_PREFIXES.some(p => net.mac.startsWith(p))) continue
+        return net.mac
+      }
+    }
+  }
+  return 'unknown'
+}
+
 // 创建 API 服务器
 function createApiServer() {
   const apiApp = express()
@@ -383,29 +446,25 @@ function createApiServer() {
     fs.mkdirSync(thumbnailDir, { recursive: true })
   }
 
-  // 加载本地敏感词
-  loadLocalWords()
-
-  // 获取设备 MAC 地址
   apiApp.get('/api/device-info', (req, res) => {
     const interfaces = os.networkInterfaces()
-    let mac = 'unknown'
+    const all = {}
     for (const [name, nets] of Object.entries(interfaces)) {
-      for (const net of nets) {
-        if (net.mac && net.mac !== '00:00:00:00:00:00' && !net.internal) {
-          mac = net.mac
-          break
-        }
-      }
+      all[name] = nets.map(n => ({ mac: n.mac, internal: n.internal, cidr: n.cidr }))
     }
-    res.json({ success: true, data: { mac } })
+    res.json({ success: true, data: { mac: getRealMac(), allInterfaces: all } })
   })
 
   // 设备状态查询 - 代理到远程服务器
   apiApp.get('/api/device-status', async (req, res) => {
     try {
+      const mac = getRealMac()
+      if (!mac || mac === 'unknown') {
+        return res.status(500).json({ success: false, error: '无法获取设备MAC地址' })
+      }
       const url = new URL(`${REMOTE_API_URL}/api/device-status`)
-      url.searchParams.set('mac', req.query.mac || '')
+      url.searchParams.set('mac', mac)
+      console.log(`[Device-Status] 查询设备状态, MAC: ${mac}`)
       const response = await fetch(url.toString())
       const data = await response.json()
       res.status(response.status).json(data)
@@ -415,15 +474,58 @@ function createApiServer() {
     }
   })
 
-  // 激活接口 - 代理到远程服务器
+  // 激活接口 - 代理到远程服务器（后端自动获取当前凭证）
   apiApp.post('/api/activate', async (req, res) => {
     try {
+      const realMac = getRealMac()
+      console.log('[Activate] 前端请求体:', JSON.stringify(req.body))
+      console.log('[Activate] 本地真实MAC:', realMac)
+      
+      // 自动从 device-status 获取当前凭证（如果已激活）
+      let currentToken = null
+      let currentExpiresAt = null
+      
+      try {
+        const deviceStatusUrl = new URL(`${REMOTE_API_URL}/api/device-status`)
+        deviceStatusUrl.searchParams.set('mac', realMac)
+        
+        const statusResponse = await fetch(deviceStatusUrl.toString())
+        const statusData = await statusResponse.json()
+        
+        if (statusData.success && statusData.data?.activated && !statusData.data?.expired) {
+          currentToken = statusData.data.token
+          currentExpiresAt = statusData.data.expiresAt
+          console.log('[Activate] 自动获取当前凭证:', { currentToken: currentToken?.substring(0, 10) + '...', currentExpiresAt })
+        }
+      } catch (error) {
+        console.log('[Activate] 获取当前凭证失败，继续无凭证激活:', error.message)
+      }
+      
+      const requestBody = { 
+        ...req.body, 
+        deviceMac: realMac,
+        currentToken,
+        currentExpiresAt
+      }
+      
+      console.log('[Activate] 发送给远程的数据:', JSON.stringify({
+        ...requestBody,
+        currentToken: requestBody.currentToken?.substring(0, 10) + '...'
+      }))
+      
       const response = await fetch(`${REMOTE_API_URL}/api/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req.body)
+        body: JSON.stringify(requestBody)
       })
       const data = await response.json()
+      console.log('[Activate] 远程服务器返回:', JSON.stringify(data))
+      
+      // 激活成功后清除认证缓存，强制下次请求重新验证
+      if (data.success) {
+        clearAuthCache()
+      }
+      
       res.status(response.status).json(data)
     } catch (error) {
       console.error('Activate proxy error:', error)
@@ -431,43 +533,94 @@ function createApiServer() {
     }
   })
 
-  // 获取所有敏感词
-  apiApp.get('/api/words', (req, res) => {
-    proxyToRemote(req, res, {
-      onSuccess: async (data, companyId) => {
-        if (data.success && data.data) {
-          updateLocalCache(data.data, companyId)
-        }
-      }
-    })
+  // ============================================
+  // 🔐 需要认证的 API 接口（使用 authMiddleware 统一验证）
+  // ============================================
+  
+  // 敏感词相关接口（需要签名请求远程服务器）
+  apiApp.get('/api/words', requireAuth, async (req, res) => {
+    try {
+      const { token, secret } = req.deviceAuth
+      const wordsPath = '/api/words'
+      const { timestamp, nonce, signature } = await generateSignature(secret, 'GET', wordsPath)
+      
+      const headers = applySignatureToHeaders({
+        'Content-Type': 'application/json',
+        'X-Token': token,
+        'X-Company-ID': getCompanyId(req)
+      }, timestamp, nonce, signature)
+
+      console.log(`[Words] GET 使用后端凭证获取敏感词列表`)
+      const response = await fetch(`${REMOTE_API_URL}${wordsPath}`, {
+        method: 'GET',
+        headers
+      })
+      
+      const data = await response.json()
+      return res.status(response.status).json(data)
+    } catch (error) {
+      console.error('[Words] GET 失败:', error.message)
+      return res.status(500).json({ success: false, error: error.message })
+    }
   })
 
-  // 添加敏感词
-  apiApp.post('/api/words', (req, res) => {
-    proxyToRemote(req, res, {
-      onSuccess: async (data, companyId) => {
-        if (data.success && data.data) {
-          updateLocalCache(data.data, companyId)
-        }
-      }
-    })
+  apiApp.post('/api/words', requireAuth, async (req, res) => {
+    try {
+      const { token, secret } = req.deviceAuth
+      const wordsPath = '/api/words'
+      const { timestamp, nonce, signature } = await generateSignature(secret, 'POST', wordsPath, req.body)
+      
+      const headers = applySignatureToHeaders({
+        'Content-Type': 'application/json',
+        'X-Token': token,
+        'X-Company-ID': getCompanyId(req)
+      }, timestamp, nonce, signature)
+
+      console.log('[Words] POST 使用后端凭证添加敏感词')
+      const response = await fetch(`${REMOTE_API_URL}${wordsPath}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(req.body)
+      })
+      
+      const data = await response.json()
+      return res.status(response.status).json(data)
+    } catch (error) {
+      console.error('[Words] POST 失败:', error.message)
+      return res.status(500).json({ success: false, error: error.message })
+    }
   })
 
-  // 删除敏感词
-  apiApp.delete('/api/words/:id', (req, res) => {
-    proxyToRemote(req, res, {
-      onSuccess: async (data, companyId) => {
-        if (data.success) {
-          removeFromCache(req.params.id, companyId)
-        }
-      }
-    })
+  apiApp.delete('/api/words/:id', requireAuth, async (req, res) => {
+    try {
+      const { token, secret } = req.deviceAuth
+      const wordsPath = `/api/words/${req.params.id}`
+      const { timestamp, nonce, signature } = await generateSignature(secret, 'DELETE', wordsPath)
+      
+      const headers = applySignatureToHeaders({
+        'Content-Type': 'application/json',
+        'X-Token': token,
+        'X-Company-ID': getCompanyId(req)
+      }, timestamp, nonce, signature)
+
+      console.log(`[Words] DELETE 使用后端凭证删除敏感词 ID: ${req.params.id}`)
+      const response = await fetch(`${REMOTE_API_URL}${wordsPath}`, {
+        method: 'DELETE',
+        headers
+      })
+      
+      const data = await response.json()
+      return res.status(response.status).json(data)
+    } catch (error) {
+      console.error('[Words] DELETE 失败:', error.message)
+      return res.status(500).json({ success: false, error: error.message })
+    }
   })
 
   // ============================================
   // 🚀 核心优化 2: 高性能扫描引擎（流式版本）
   // ============================================
-  apiApp.post('/api/scan', async (req, res) => {
+  apiApp.post('/api/scan', requireAuth, async (req, res) => {
     const startTime = Date.now()
 
     try {
@@ -477,12 +630,50 @@ function createApiServer() {
         return res.status(400).json({ success: false, error: '文件夹路径无效' })
       }
 
-      // 获取敏感词列表
-      const words = [...localWords.values()].map(item => item.word)
+      // 从中间件获取已验证的凭证
+      const { token, secret } = req.deviceAuth
+      
+      // 用后端的凭证生成签名请求敏感词
+      let words = []
+      try {
+        const wordsPath = '/api/words'
+        const { timestamp, nonce, signature } = await generateSignature(secret, 'GET', wordsPath)
+        
+        const headers = applySignatureToHeaders({
+          'Content-Type': 'application/json',
+          'X-Token': token
+        }, timestamp, nonce, signature)
+
+        console.log(`[Scan] 使用后端凭证获取敏感词列表`)
+        const wordsResponse = await fetch(`${REMOTE_API_URL}/api/words`, {
+          method: 'GET',
+          headers
+        })
+        
+        if (!wordsResponse.ok) {
+          console.error(`[Scan] 获取敏感词失败: ${wordsResponse.status}`)
+          return res.status(wordsResponse.status).json({
+            success: false,
+            error: `获取敏感词失败 (${wordsResponse.status})`,
+            data: [],
+            stats: { totalFiles: 0, matchedFiles: 0, totalTime: Date.now() - startTime, algorithm: 'none' }
+          })
+        }
+        
+        const wordsData = await wordsResponse.json()
+        if (wordsData.success && wordsData.data) {
+          words = wordsData.data.map(item => item.word)
+          console.log(`[Scan] 成功获取 ${words.length} 个敏感词`)
+        }
+      } catch (error) {
+        console.error('获取敏感词失败:', error.message)
+      }
 
       if (words.length === 0) {
-        return res.json({
-          success: true,
+        console.error('⚠️ [Scan] 无法获取敏感词列表，请检查订阅状态')
+        return res.status(403).json({
+          success: false,
+          error: '无法获取敏感词列表，请检查订阅是否过期',
           data: [],
           stats: {
             totalFiles: 0,
@@ -646,8 +837,12 @@ function createApiServer() {
     }
   })
 
+  // ============================================
+  // 📁 本地文件操作接口（需要认证，无需签名）
+  // ============================================
+  
   // 删除图片
-  apiApp.delete('/api/images', async (req, res) => {
+  apiApp.delete('/api/images', requireAuth, async (req, res) => {
     try {
       const { paths } = req.body
       
@@ -682,7 +877,7 @@ function createApiServer() {
   })
 
   // 大图预览 API
-  apiApp.get('/api/images/:id', async (req, res) => {
+  apiApp.get('/api/images/:id', requireAuth, async (req, res) => {
     try {
       const { id } = req.params
       const imagePath = req.query.path || req.body?.path
@@ -719,8 +914,8 @@ function createApiServer() {
     }
   })
 
-  // 按需生成缩略图 API
-  apiApp.get('/api/thumbnail', async (req, res) => {
+  // 缩略图生成 API
+  apiApp.get('/api/thumbnail', requireAuth, async (req, res) => {
     try {
       const { path: imagePath } = req.query
 
@@ -774,7 +969,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false
     },
-    title: 'ImgGuard - 图片敏感词过滤工具'
+    title: 'ShopTools - 电商图片工具'
   })
 
   if (app.isPackaged) {
@@ -829,15 +1024,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('get-device-mac', () => {
-    const interfaces = os.networkInterfaces()
-    for (const [name, nets] of Object.entries(interfaces)) {
-      for (const net of nets) {
-        if (net.mac && net.mac !== '00:00:00:00:00:00' && !net.internal) {
-          return net.mac
-        }
-      }
-    }
-    return 'unknown'
+    return getRealMac()
   })
 })
 

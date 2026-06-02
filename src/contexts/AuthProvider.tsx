@@ -1,7 +1,7 @@
-import { useState, useEffect, createContext, useContext, useCallback, useRef, type ReactNode } from 'react'
+import { useState, useEffect, createContext, useContext, useCallback, type ReactNode } from 'react'
 import { API_BASE } from '../services/api'
 import { onAuthFail } from '../services/authEvents'
-import { getDaysRemaining, getStoredCredentials, checkAndRefreshAuth } from '../services/auth'
+import { verifyAuth, getDaysRemaining, type AuthResult } from '../services/auth'
 import { message } from 'antd'
 
 type AuthStatus = 'checking' | 'not_activated' | 'activated'
@@ -21,58 +21,41 @@ export function useAuth() {
   return ctx
 }
 
-interface AuthProviderProps {
-  children: ReactNode
-}
-
-export default function AuthProvider({ children }: AuthProviderProps) {
+export default function AuthProvider({ children }: { children: ReactNode }) {
   const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
   const [daysRemaining, setDaysRemaining] = useState<number>(0)
   const [expiresAtStr, setExpiresAtStr] = useState<string>('')
 
   const checkAuth = useCallback(async () => {
-    try {
-      const result = await checkAndRefreshAuth(API_BASE)
-
-      if (!result.activated) {
-        setAuthStatus('not_activated')
-        return
-      }
-
-      const storedCreds = await getStoredCredentials()
-      if (storedCreds?.expiresAt) {
-        setDaysRemaining(getDaysRemaining(storedCreds.expiresAt))
-        const expiresDate = new Date(storedCreds.expiresAt * 1000)
-        setExpiresAtStr(expiresDate.toLocaleString('zh-CN', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false
-        }).replace(/\//g, '-'))
-        setAuthStatus('activated')
-      } else {
-        setAuthStatus('activated')
-      }
-    } catch (error) {
-      console.error('Auth check failed:', error)
+    console.log('[AuthProvider] Starting auth check...')
+    
+    const result: AuthResult = await verifyAuth(API_BASE)
+    
+    if (result.valid) {
+      console.log('[AuthProvider] Auth valid, setting activated')
+      setDaysRemaining(getDaysRemaining(result.expiresAt))
+      
+      const expiresDate = new Date(result.expiresAt * 1000)
+      setExpiresAtStr(expiresDate.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).replace(/\//g, '-'))
+      
+      setAuthStatus('activated')
+    } else {
+      console.log(`[AuthProvider] Auth invalid, reason: ${result.reason}`)
       setAuthStatus('not_activated')
     }
   }, [])
 
-  const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isRedirecting = useRef(false)
-
   const handleAuthFail = useCallback((reason: string) => {
-    if (redirectTimer.current) {
-      clearTimeout(redirectTimer.current)
-    }
-
-    if (isRedirecting.current) return
-    isRedirecting.current = true
-
+    console.log(`[AuthProvider] Auth failed with reason: ${reason}`)
+    
     if (reason === 'SUBSCRIPTION_EXPIRED') {
       message.warning('订阅已过期，请重新激活')
     } else if (reason === 'NOT_ACTIVATED') {
@@ -80,17 +63,15 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     } else if (reason === 'UNAUTHORIZED') {
       message.warning('身份验证失败，请重新激活')
     } else {
-      message.warning(reason)
+      message.warning(reason || '认证失败')
     }
-    redirectTimer.current = setTimeout(() => {
-      setAuthStatus('not_activated')
-      isRedirecting.current = false
-    }, 3000)
-  }, [])
+
+    checkAuth()
+  }, [checkAuth])
 
   useEffect(() => {
     onAuthFail(handleAuthFail)
-    return () => { onAuthFail(null); if (redirectTimer.current) clearTimeout(redirectTimer.current) }
+    return () => onAuthFail(null)
   }, [handleAuthFail])
 
   useEffect(() => {

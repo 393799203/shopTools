@@ -16,7 +16,7 @@ services:
       - DB_NAME=picfilter
       - DB_USER=picfilter
       - DB_PASS=PicFilter2024Secure!
-      - ADMIN_SECRET=ImgGuardAdmin2024Secure!
+      - ADMIN_SECRET=ShopToolsAdmin2024Secure!
     depends_on:
       postgres:
         condition: service_healthy
