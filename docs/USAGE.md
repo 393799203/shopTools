@@ -66,6 +66,7 @@ VITE_COMPANY_ID=company_b npm run build:win
 | **查看所有key** | `node server-api/generate-license.js list` |
 | **重置key** | `node server-api/generate-license.js reset <KEY>` |
 | **更新设备过期时间** | `node server-api/manage-device.js update <MAC> <时间>` |
+| **删除设备（重新测试）** | `node server-api/manage-device.js delete <MAC>` |
 | **打包Mac** | `npm run build:mac` |
 | **打包Win** | `npm run build:win` |
 | **查看日志** | `ssh root@8.217.249.31 "docker logs -f picfilter-api"` |
@@ -73,6 +74,34 @@ VITE_COMPANY_ID=company_b npm run build:win
 ---
 
 ## 🔧 设备管理（Admin）
+
+### 删除设备（重新测试）
+
+完全删除设备记录，使设备可以像新设备一样重新激活。
+
+> ⚠️ **不可逆操作！** 会清除设备信息、激活历史、额度记录等所有数据。
+
+```bash
+# 基本用法
+node server-api/manage-device.js delete <MAC地址>
+
+# 示例：删除指定设备
+node server-api/manage-device.js delete 8c:85:90:b9:7b:bf
+
+# 也支持别名
+node server-api/manage-device.js del 8c:85:90:b9:7b:bf
+node server-api/manage-device.js remove 8c:85:90:b9:7b:bf
+```
+
+**使用场景：**
+- 需要完整重新测试激活流程
+- 设备数据异常需要重置
+- 用户要求彻底注销
+
+**删除后操作：**
+1. 重启 Electron 应用（或 Cmd+R）
+2. 应用会显示"未激活"状态
+3. 输入新的 License Key 重新激活
 
 ### 更新设备过期时间
 
@@ -144,6 +173,27 @@ node server-api/generate-license.js list
 node server-api/generate-license.js reset <KEY>
 
 # 3. 用户重新激活
+```
+
+**需要重新测试激活流程？**
+```bash
+# 删除旧设备数据（不可逆！）
+node server-api/manage-device.js delete <MAC地址>
+
+# 然后重启应用，重新激活
+```
+
+**删除设备失败？**
+```bash
+# 1. 检查服务器是否部署了最新代码
+# 2. 查看 MAC 地址是否正确
+ifconfig en0 | grep ether | awk '{print $2}'  # macOS
+
+# 3. 验证设备是否存在
+curl "http://8.217.249.31:3001/api/device-status?mac=<MAC>"
+
+# 4. 如果还是失败，查看服务器日志
+ssh root@8.217.249.31 "docker logs -f picfilter-api"
 ```
 
 **后端异常？**
