@@ -936,15 +936,15 @@ function createApiServer() {
   apiApp.delete('/api/images', requireAuth, async (req, res) => {
     try {
       const { paths } = req.body
-      
+
       if (!paths || !Array.isArray(paths) || paths.length === 0) {
         return res.status(400).json({ success: false, error: '请选择要删除的图片' })
       }
-      
+
       let deletedCount = 0
       let failedCount = 0
       const failedPaths = []
-      
+
       for (const filePath of paths) {
         try {
           if (fs.existsSync(filePath)) {
@@ -956,13 +956,69 @@ function createApiServer() {
           failedPaths.push(filePath)
         }
       }
-      
+
       res.json({
         success: true,
         data: { deletedCount, failedCount, failedPaths }
       })
     } catch (error) {
       console.error('Error deleting images:', error)
+      res.status(500).json({ success: false, error: error.message })
+    }
+  })
+
+  // 移动图片到目标文件夹
+  apiApp.post('/api/images/move', requireAuth, async (req, res) => {
+    try {
+      const { paths, targetDir } = req.body
+
+      if (!paths || !Array.isArray(paths) || paths.length === 0) {
+        return res.status(400).json({ success: false, error: '请选择要移动的图片' })
+      }
+
+      if (!targetDir || typeof targetDir !== 'string') {
+        return res.status(400).json({ success: false, error: '请指定目标文件夹' })
+      }
+
+      if (!fs.existsSync(targetDir)) {
+        return res.status(400).json({ success: false, error: '目标文件夹不存在' })
+      }
+
+      let movedCount = 0
+      let failedCount = 0
+      const failedPaths = []
+
+      for (const filePath of paths) {
+        try {
+          if (fs.existsSync(filePath)) {
+            const fileName = path.basename(filePath)
+            const destPath = path.join(targetDir, fileName)
+
+            // 如果目标文件已存在，添加序号避免覆盖
+            let finalDestPath = destPath
+            let counter = 1
+            while (fs.existsSync(finalDestPath)) {
+              const ext = path.extname(fileName)
+              const baseName = path.basename(fileName, ext)
+              finalDestPath = path.join(targetDir, `${baseName}_${counter}${ext}`)
+              counter++
+            }
+
+            fs.renameSync(filePath, finalDestPath)
+            movedCount++
+          }
+        } catch (error) {
+          failedCount++
+          failedPaths.push(filePath)
+        }
+      }
+
+      res.json({
+        success: true,
+        data: { movedCount, failedCount, failedPaths }
+      })
+    } catch (error) {
+      console.error('Error moving images:', error)
       res.status(500).json({ success: false, error: error.message })
     }
   })

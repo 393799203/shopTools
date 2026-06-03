@@ -463,6 +463,81 @@ function SensitiveWordPage() {
     })
   }
 
+  // 移动选中的图片到目标文件夹
+  const handleMoveSelected = async () => {
+    const allSelectedImages = images.filter(img => targetSelectedIds.has(img.id))
+
+    if (allSelectedImages.length === 0) {
+      message.warning('请先选择要移动的图片')
+      return
+    }
+
+    // 选择目标文件夹
+    let targetDir: string | null = null
+    if (window.electronAPI?.openFolderDialog) {
+      try {
+        const result = await window.electronAPI.openFolderDialog()
+        if (!result.canceled && result.filePaths.length > 0) {
+          targetDir = result.filePaths[0]
+        }
+      } catch (error) {
+        console.error('Failed to open dialog:', error)
+        message.error('无法打开文件夹选择窗口')
+        return
+      }
+    }
+
+    if (!targetDir) {
+      message.info('已取消移动')
+      return
+    }
+
+    const totalCount = allSelectedImages.length
+
+    const { Modal } = await import('antd')
+    Modal.confirm({
+      title: '确认移动',
+      content: (
+        <div style={{ padding: '8px 0' }}>
+          <div style={{ marginBottom: 12, color: '#333', fontSize: '14px', lineHeight: '1.6' }}>
+            确定要将 {totalCount} 张图片移动到以下目录吗？
+          </div>
+          <div style={{ color: '#666', fontSize: '13px', lineHeight: '1.8', wordBreak: 'break-all', background: '#f5f5f5', padding: '8px', borderRadius: '4px' }}>
+            📁 {targetDir}
+          </div>
+        </div>
+      ),
+      okText: `确定移动 (${totalCount}张)`,
+      okType: 'primary',
+      cancelText: '取消',
+      width: 480,
+      onOk: async () => {
+        try {
+          const result = await api.moveImages(allSelectedImages.map(img => img.path), targetDir)
+          if (result.success) {
+            message.success(`成功移动 ${result.data.movedCount} 张图片，失败 ${result.data.failedCount} 张`)
+
+            const movedIds = new Set(allSelectedImages.map(img => img.id))
+            imagesRef.current = imagesRef.current.filter(img => !movedIds.has(img.id))
+            setImages(prev => prev.filter(img => !movedIds.has(img.id)))
+            setTargetSelectedIds(prev => {
+              const next = new Set(prev)
+              movedIds.forEach(id => next.delete(id))
+              return next
+            })
+            setDisplayedSelectedIds(prev => {
+              const next = new Set(prev)
+              movedIds.forEach(id => next.delete(id))
+              return next
+            })
+          }
+        } catch (error) {
+          message.error('移动失败')
+        }
+      }
+    })
+  }
+
   const selectedCount = targetSelectedIds.size
   const allSelected = images.length > 0 && targetSelectedIds.size === images.length
 
@@ -553,6 +628,7 @@ function SensitiveWordPage() {
           allSelected={allSelected}
           onSelectAll={handleSelectAll}
           onDeleteSelected={handleDeleteSelected}
+          onMoveSelected={handleMoveSelected}
           onRescan={handleRescan}
           loading={loading}
           hasFolder={!!currentFolder}

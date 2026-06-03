@@ -120,6 +120,15 @@ export const api = {
       body: JSON.stringify({ paths })
     })
     return handleResponse(res, false)  // 操作类：不通知
+  },
+
+  async moveImages(paths: string[], targetDir: string) {
+    const res = await fetch(`${API_BASE}/images/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, targetDir })
+    })
+    return handleResponse(res, false)  // 操作类：不通知
   }
 }
 

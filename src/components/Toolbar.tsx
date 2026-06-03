@@ -1,5 +1,5 @@
 import { Button, Space, Typography, Checkbox, Tooltip } from 'antd'
-import { DeleteOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { DeleteOutlined, ReloadOutlined, InfoCircleOutlined, FolderOpenOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
 
@@ -10,6 +10,7 @@ interface ToolbarProps {
   allSelected: boolean
   onSelectAll: (selected: boolean) => void
   onDeleteSelected: () => void
+  onMoveSelected: () => void
   onRescan: () => void
   loading: boolean
   hasFolder: boolean
@@ -22,6 +23,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   allSelected,
   onSelectAll,
   onDeleteSelected,
+  onMoveSelected,
   onRescan,
   loading,
   hasFolder
@@ -69,6 +71,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
           重新匹配
         </Button>
         <Button
+          icon={<FolderOpenOutlined />}
+          onClick={onMoveSelected}
+          disabled={selectedCount === 0 || loading}
+          loading={loading}
+        >
+          移动到 ({selectedCount})
+        </Button>
+        <Button
           type="primary"
           danger
           icon={<DeleteOutlined />}
@@ -76,7 +86,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           disabled={selectedCount === 0 || loading}
           loading={loading}
         >
-          删除选中 ({selectedCount})
+          删除 ({selectedCount})
         </Button>
       </Space>
     </div>
