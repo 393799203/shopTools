@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthProvider'
 import LicenseKeyInput from './LicenseKeyInput'
 
 function Header() {
-  const { expiresAtStr, daysRemaining, planType, isSubscriptionExpired, quotaRemaining, quotaTotal, recheck } = useAuth()
+  const { expiresAtStr, daysRemaining, isSubscriptionExpired, quotaRemaining, quotaTotal, afterPayment } = useAuth()
   const [renewModalOpen, setRenewModalOpen] = useState(false)
   const [renewKey, setRenewKey] = useState('')
   const [renewLoading, setRenewLoading] = useState(false)
@@ -27,7 +27,7 @@ function Header() {
       setRenewModalOpen(false)
       setRenewKey('')
       // 重新验证并更新认证状态和到期日期（不刷新页面）
-      await recheck()
+      await afterPayment()
     } catch (error: any) {
       const errorData = error?.message ? { error: error.message } : {}
       message.error(getErrorMessage(errorData, undefined, '延期失败'))

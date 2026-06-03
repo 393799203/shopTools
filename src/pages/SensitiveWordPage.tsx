@@ -26,7 +26,7 @@ interface ScanStats {
 }
 
 function SensitiveWordPage() {
-  const { recheck, planType, isSubscriptionExpired, quotaRemaining, authStatus, refreshVersion } = useAuth()
+  const { planType, isSubscriptionExpired, quotaRemaining, authStatus, refreshVersion } = useAuth()
   const [images, setImages] = useState<MatchedImage[]>([])
 
   // 使用 ref 追踪最新的 images，避免闭包陷阱
@@ -248,10 +248,7 @@ function SensitiveWordPage() {
           setLoading(false)
           setCurrentFolder(folderPath)
           setStats(event.stats)
-          
-          // 刷新额度显示（扣费后更新右上角）
-          recheck()
-          
+
           requestAnimationFrame(() => {
             const finalRenderEnd = performance.now()
             const totalTime = (finalRenderEnd - scanStartTime).toFixed(0)
@@ -281,8 +278,8 @@ function SensitiveWordPage() {
       }
 
       const totalImages = imagesRef.current.length
-      if (totalImages === 0 && !loading) {
-        message.info('未找到匹配的图片')
+      if (totalImages > 0) {
+        console.log(`📊 [页面] 扫描完成，共 ${totalImages} 张匹配图片`)
       }
 
     } catch (error: any) {

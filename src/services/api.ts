@@ -1,6 +1,10 @@
 import { handleApiError, getErrorMessage } from '../utils/errorHandler'
 
 const API_BASE = 'http://localhost:3001/api'
+const COMMON_HEADERS: Record<string, string> = {
+  'Content-Type': 'application/json',
+  'X-Company-ID': import.meta.env.VITE_COMPANY_ID || 'default'
+}
 
 export function onUnauthorized(cb: (() => void) | null) {
   // 后端已统一验证身份，前端不再需要处理未授权回调
@@ -10,21 +14,21 @@ export const api = {
   async activate(licenseKey: string) {
     const res = await fetch(`${API_BASE}/activate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: COMMON_HEADERS,
       body: JSON.stringify({ licenseKey })
     })
     return res.json()
   },
 
   async getWords() {
-    const res = await fetch(`${API_BASE}/words`)
+    const res = await fetch(`${API_BASE}/words`, { headers: COMMON_HEADERS })
     return handleResponse(res)  // 数据加载类：默认通知
   },
 
   async addWord(word: string) {
     const res = await fetch(`${API_BASE}/words`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: COMMON_HEADERS,
       body: JSON.stringify({ word })
     })
     return handleResponse(res, false)  // 操作类：不通知
@@ -32,7 +36,8 @@ export const api = {
 
   async deleteWord(id: string) {
     const res = await fetch(`${API_BASE}/words/${id}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: COMMON_HEADERS
     })
     return handleResponse(res, false)  // 操作类：不通知
   },
@@ -43,7 +48,7 @@ export const api = {
     try {
       response = await fetch(`${API_BASE}/scan`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: COMMON_HEADERS,
         body: JSON.stringify({ folderPath })
       })
       
@@ -116,7 +121,7 @@ export const api = {
   async deleteImages(paths: string[]) {
     const res = await fetch(`${API_BASE}/images`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: COMMON_HEADERS,
       body: JSON.stringify({ paths })
     })
     return handleResponse(res, false)  // 操作类：不通知
@@ -125,7 +130,7 @@ export const api = {
   async moveImages(paths: string[], targetDir: string) {
     const res = await fetch(`${API_BASE}/images/move`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: COMMON_HEADERS,
       body: JSON.stringify({ paths, targetDir })
     })
     return handleResponse(res, false)  // 操作类：不通知

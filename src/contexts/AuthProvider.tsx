@@ -14,7 +14,10 @@ interface AuthContextValue {
   quotaRemaining: number | null
   quotaTotal: number | null
   refreshVersion: number
+  /** 仅刷新状态/配额 */
   recheck: () => Promise<void>
+  /** 充值/激活后调用：刷新状态 + 触发页面数据重载 */
+  afterPayment: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -80,7 +83,11 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const recheckWithRefresh = useCallback(async () => {
+  const recheck = useCallback(async () => {
+    await checkAuth()
+  }, [checkAuth])
+
+  const afterPayment = useCallback(async () => {
     await checkAuth()
     setRefreshVersion(v => v + 1)
   }, [checkAuth])
@@ -90,16 +97,17 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   }, [checkAuth])
 
   return (
-    <AuthContext.Provider value={{ 
-      authStatus, 
-      daysRemaining, 
-      expiresAtStr, 
-      planType, 
-      isSubscriptionExpired, 
-      quotaRemaining, 
-      quotaTotal, 
+    <AuthContext.Provider value={{
+      authStatus,
+      daysRemaining,
+      expiresAtStr,
+      planType,
+      isSubscriptionExpired,
+      quotaRemaining,
+      quotaTotal,
       refreshVersion,
-      recheck: recheckWithRefresh 
+      recheck,
+      afterPayment
     }}>
       {children}
     </AuthContext.Provider>
