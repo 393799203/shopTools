@@ -42,14 +42,19 @@ export const api = {
     return handleResponse(res, false)  // 操作类：不通知
   },
 
-  async scanFolder(folderPath: string, onProgress?: (event: { type: string; data?: any[]; stats?: any; error?: string }) => void): Promise<{ success: boolean; data: any[]; stats?: any }> {
+  async scanFolder(folderPath: string, words?: string[], onProgress?: (event: { type: string; data?: any[]; stats?: any; error?: string }) => void): Promise<{ success: boolean; data: any[]; stats?: any }> {
     let response: Response
-    
+
     try {
+      const body: Record<string, any> = { folderPath }
+      if (words && words.length > 0) {
+        body.words = words
+      }
+
       response = await fetch(`${API_BASE}/scan`, {
         method: 'POST',
         headers: COMMON_HEADERS,
-        body: JSON.stringify({ folderPath })
+        body: JSON.stringify(body)
       })
       
       if (!response.ok) {

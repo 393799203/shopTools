@@ -128,6 +128,12 @@ function SensitiveWordPage() {
 
   const [words, setWords] = useState<{ id: string; word: string }[]>([])
   const [wordsLoading, setWordsLoading] = useState(true)
+  const [disabledWordIds, setDisabledWordIds] = useState<Set<string>>(new Set())
+
+  // 启用中的关键词（排除禁用的）
+  const activeWords = useMemo(() => {
+    return words.filter(item => !disabledWordIds.has(item.id)).map(item => item.word)
+  }, [words, disabledWordIds])
 
   useEffect(() => {
     if (authStatus === 'checking') return
@@ -155,7 +161,7 @@ function SensitiveWordPage() {
       const result = await api.addWord(word)
       if (result.success) {
         setWords(prev => [result.data, ...prev])
-        message.success(`敏感词 "${word}" 添加成功`)
+        message.success(`关键词 "${word}" 添加成功`)
         return true
       } else {
         message.error(result.error || '添加失败')
@@ -185,7 +191,7 @@ function SensitiveWordPage() {
       const result = await api.getWords()
       if (result.success) {
         setWords(result.data)
-        message.success(`已刷新，共 ${result.data.length} 个敏感词`)
+        message.success(`已刷新，共 ${result.data.length} 个关键词`)
       }
     } catch (error) {
       setWords([])
@@ -195,7 +201,7 @@ function SensitiveWordPage() {
     }
   }, [])
 
-  const handleScanFolder = async (folderPath: string) => {
+  const handleScanFolder = async (folderPath: string, activeWords?: string[]) => {
     const scanStartTime = performance.now()
     console.log('🎯 [页面] 开始扫描文件夹:', folderPath)
     imagesRef.current = []
@@ -209,7 +215,7 @@ function SensitiveWordPage() {
     try {
       const apiCallStart = performance.now()
       console.log('📡 [页面] 调用流式 API...')
-      const result = await api.scanFolder(folderPath, (event) => {
+      const result = await api.scanFolder(folderPath, activeWords, (event) => {
         const eventTime = performance.now()
         console.log(`📥 [页面] 收到事件: ${event.type} (耗时: ${(eventTime - scanStartTime).toFixed(0)}ms)`)
 
@@ -295,7 +301,7 @@ function SensitiveWordPage() {
       return
     }
 
-    await handleScanFolder(currentFolder)
+    await handleScanFolder(currentFolder, activeWords)
   }
 
   const handleToggleSelect = useCallback((imageId: string) => {
@@ -571,7 +577,7 @@ function SensitiveWordPage() {
               <strong style={{ fontSize: '13px' }}>性能统计</strong>
             </span>
             <span>
-              <Tag color="blue" style={{ fontSize: '11px', padding: '0 6px', lineHeight: '18px' }}>敏感词: {stats.wordsCount} 个</Tag>
+              <Tag color="blue" style={{ fontSize: '11px', padding: '0 6px', lineHeight: '18px' }}>关键词: {stats.wordsCount} 个</Tag>
               <Tag color="purple" style={{ fontSize: '11px', padding: '0 6px', lineHeight: '18px' }}>匹配率: {((stats.matchedFiles / stats.totalFiles) * 100).toFixed(2)}%</Tag>
             </span>
           </span>
@@ -616,6 +622,12 @@ function SensitiveWordPage() {
         onRefreshWords={handleRefreshWords}
         onScanFolder={handleScanFolder}
         currentFolder={currentFolder}
+        disabledWordIds={disabledWordIds}
+        onToggleWordDisabled={(id) => setDisabledWordIds(prev => {
+          const next = new Set(prev)
+          if (next.has(id)) { next.delete(id) } else { next.add(id) }
+          return next
+        })}
       />
       <main style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Toolbar

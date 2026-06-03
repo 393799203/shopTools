@@ -613,58 +613,28 @@ function createApiServer() {
       console.log(`✅ [Scan] 统计完成: 发现 ${totalImageCount} 张图片`)
       
       // ============================================
-      // 🔍 第2步：获取敏感词列表（先于扣费，确保能扫描）
+      // 🔍 第2步：使用前端传入的敏感词列表
       // ============================================
-      let words = []
-      try {
-        console.log(`[Scan] 使用后端凭证获取敏感词列表`)
-        const wordsResponse = await signedFetch(token, secret, 'GET', '/api/words', null, req)
-        
-        if (!wordsResponse.ok) {
-          let wordsError = `获取敏感词失败 (${wordsResponse.status})`
-          try {
-            const errorData = await wordsResponse.json()
-            if (errorData.error) {
-              wordsError = errorData.error
-              console.error(`[Scan] 获取敏感词失败: ${wordsError}`)
-            }
-          } catch (e) {
-            console.error(`[Scan] 获取敏感词失败: ${wordsResponse.status}`)
-          }
-          
-          return res.status(wordsResponse.status).json({
-            success: false,
-            code: 'WORDS_ERROR',
-            error: wordsError,
-            data: [],
-            stats: { totalFiles: totalImageCount, matchedFiles: 0, totalTime: Date.now() - startTime, algorithm: 'none' }
-          })
-        }
-        
-        const wordsData = await wordsResponse.json()
-        if (wordsData.success && wordsData.data) {
-          words = wordsData.data.map(item => item.word)
-          console.log(`[Scan] 成功获取 ${words.length} 个敏感词`)
-        }
-      } catch (error) {
-        console.error('获取敏感词失败:', error.message)
-      }
+      const words = req.body.words || []
 
       if (words.length === 0) {
-        console.error('⚠️ [Scan] 无法获取敏感词列表')
-        return res.status(403).json({
-          success: false,
-          code: 'WORDS_EMPTY',
-          error: '无法获取敏感词列表，请检查账户状态',
+        console.log(`[Scan] 未传入敏感词，返回空结果`)
+        return res.json({
+          success: true,
           data: [],
           stats: {
             totalFiles: totalImageCount,
             matchedFiles: 0,
             totalTime: Date.now() - startTime,
-            algorithm: 'none'
+            scanTime: 0,
+            thumbnailTime: 0,
+            algorithm: 'none',
+            wordsCount: 0
           }
         })
       }
+
+      console.log(`[Scan] 使用前端传入的 ${words.length} 个敏感词`)
       
       // ============================================
       // 💰 第3步：调用远程服务器扣费（仅按量付费模式）

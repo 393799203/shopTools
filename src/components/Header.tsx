@@ -57,7 +57,7 @@ function Header() {
             padding: '15px',
             borderRadius: '2px',
             background: 'rgba(88,166,255,0.15)'
-          }}>敏感词删图</Link>
+          }}>关键词找图</Link>
         </nav>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           
