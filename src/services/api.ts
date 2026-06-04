@@ -17,7 +17,15 @@ export const api = {
       headers: COMMON_HEADERS,
       body: JSON.stringify({ licenseKey })
     })
-    return res.json()
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: '请求失败' }))
+      throw new Error(data.error || `激活失败 (${res.status})`)
+    }
+    const json = await res.json()
+    if (!json.success || !json.data) {
+      throw new Error(json.error || '激活失败')
+    }
+    return json.data
   },
 
   async getWords() {
